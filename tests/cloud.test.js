@@ -6,15 +6,16 @@ const factory = require('../js/cloud.js');
 global.window = global.window || { addEventListener() {} };
 
 const blank = () => ({ schema: 1, contas: [], categorias: [{ id: 'c', orcamento_mensal: 0 }], transacoes: [], contas_fixas: [] });
+const withTx = (...ids) => { const d = blank(); d.transacoes.push(...ids.map((id) => ({ id }))); return d; };
 
 /** Firestore + Auth falsos, compartilhados entre "aparelhos". */
 function fakeCloud() {
   const docs = {}, watchers = {};
   const mk = () => {
-    let authCb;
+    let authCb, current = null;
     const fb = {
       initializeApp() {},
-      auth: Object.assign(() => ({ onAuthStateChanged: (cb) => { authCb = cb; }, signOut: async () => authCb(null) }), { GoogleAuthProvider: function () {} }),
+      auth: Object.assign(() => ({ onAuthStateChanged: (cb) => { authCb = cb; }, signOut: async () => { current = null; authCb(null); } }), { GoogleAuthProvider: function () {} }),
       firestore: () => ({
         doc: (p) => ({
           get: async () => ({ exists: p in docs, data: () => docs[p] }),
@@ -23,86 +24,116 @@ function fakeCloud() {
         }),
       }),
     };
-    return { fb, login: (uid) => authCb({ uid }) };
+    return { fb, login: (uid) => { current = { uid }; authCb(current); } };
   };
   return { mk, docs };
 }
 
-function fakeStore(initial) {
-  let data = initial, settings = { cloudAt: 0, cloudDirty: false, cloudUid: '' };
+/** Store falso com dois espaços: 'local' e um por conta. */
+function fakeStore(localData) {
+  const spaces = { local: localData };
+  let ns = 'local';
+  const metas = {};
   const subs = new Set();
+  const fire = () => subs.forEach((f) => f());
   return {
     SCHEMA: 1,
-    data: () => data, snapshot: () => JSON.stringify(data),
-    restore(json) { data = JSON.parse(json); subs.forEach((f) => f()); },
-    reset() { data = blank(); subs.forEach((f) => f()); },
+    data: () => spaces[ns], snapshot: () => JSON.stringify(spaces[ns]),
+    restore(json) { spaces[ns] = JSON.parse(json); fire(); },
     subscribe: (f) => subs.add(f),
-    settings: () => settings, setSettings: (p) => { settings = { ...settings, ...p }; },
-    edit(fn) { fn(data); subs.forEach((f) => f()); },
+    useAccount(uid) { ns = uid; spaces[ns] = spaces[ns] || blank(); fire(); },
+    useLocal() { ns = 'local'; Object.keys(spaces).filter((k) => k !== 'local').forEach((k) => delete spaces[k]); Object.keys(metas).forEach((k) => delete metas[k]); fire(); },
+    mode: () => (ns === 'local' ? 'local' : 'account'),
+    peekLocal: () => spaces.local,
+    cloudMeta: (uid) => ({ at: 0, dirty: false, ...(metas[uid] || {}) }),
+    setCloudMeta(uid, p) { metas[uid] = { ...(metas[uid] || {}), ...p }; },
+    edit(fn) { fn(spaces[ns]); fire(); },
+    spaces,
   };
 }
-const tick = (ms) => new Promise((r) => setTimeout(r, ms || 20));
-const device = (cloud, data, conflict) => {
+const tick = (ms) => new Promise((r) => setTimeout(r, ms || 25));
+const device = (cloud, localData, handlers) => {
   const { fb, login } = cloud.mk();
-  const S = fakeStore(data);
+  const S = fakeStore(localData);
   const c = factory({ firebase: fb, S, debounce: 5 });
-  if (conflict) c.setConflictHandler(conflict);
+  c.setHandlers({ importLocal: async () => 'skip', ...handlers });
   c.init();
-  return { c, S, login };
+  return { c, S, login, logout: () => c.signOut() };
 };
+const remoteTx = (cloud, uid) => JSON.parse(cloud.docs['usuarios/' + uid].data).transacoes.length;
 
-test('primeiro login com dados locais e nuvem vazia: sobe tudo', async () => {
+test('logado, o site mostra só os dados da conta; deslogado, só os locais', async () => {
   const cloud = fakeCloud();
-  const d = blank(); d.transacoes.push({ id: 't1' });
-  const A = device(cloud, d);
+  const A = device(cloud, withTx('local1'));
   A.login('u1'); await tick();
-  assert.equal(JSON.parse(cloud.docs['usuarios/u1'].data).transacoes.length, 1);
-  assert.equal(A.c.status(), 'synced');
+  assert.equal(A.S.mode(), 'account');
+  assert.equal(A.S.data().transacoes.length, 0); // dados locais não vazam para a conta
+  A.S.edit((d) => d.transacoes.push({ id: 'conta1' })); await tick(40);
+  assert.equal(remoteTx(cloud, 'u1'), 1);
+  await A.logout(); await tick();
+  assert.equal(A.S.mode(), 'local');
+  assert.deepEqual(A.S.data().transacoes.map((t) => t.id), ['local1']); // só o que era do computador
+  assert.equal(A.S.spaces.u1, undefined); // cache da conta apagado
 });
 
-test('aparelho novo (vazio) baixa os dados da nuvem', async () => {
+test('lançamentos feitos logado ficam na conta e nunca nos dados locais', async () => {
   const cloud = fakeCloud();
-  const d = blank(); d.transacoes.push({ id: 't1' });
-  device(cloud, d).login('u1'); await tick();
-  const B = device(cloud, blank());
-  B.login('u1'); await tick();
-  assert.equal(B.S.data().transacoes.length, 1);
+  const A = device(cloud, blank());
+  A.login('u1'); await tick();
+  A.S.edit((d) => d.transacoes.push({ id: 'a' }, { id: 'b' })); await tick(40);
+  assert.equal(remoteTx(cloud, 'u1'), 2);
+  assert.equal(A.S.spaces.local.transacoes.length, 0);
 });
 
-test('alteração local sobe sozinha e chega ao outro aparelho em tempo real', async () => {
+test('deslogado, nada é enviado à nuvem', async () => {
   const cloud = fakeCloud();
-  const A = device(cloud, blank()), B = device(cloud, blank());
-  A.login('u1'); await tick(); B.login('u1'); await tick();
-  A.S.edit((x) => x.transacoes.push({ id: 'novo' })); await tick(40);
-  assert.equal(JSON.parse(cloud.docs['usuarios/u1'].data).transacoes.length, 1);
-  assert.equal(B.S.data().transacoes.length, 1);
-  assert.equal(B.S.settings().cloudDirty, false); // recebido da nuvem não vira "pendente"
+  const A = device(cloud, blank());
+  A.S.edit((d) => d.transacoes.push({ id: 'x' })); await tick(40);
+  assert.deepEqual(Object.keys(cloud.docs), []);
 });
 
-test('conflito: os dois lados têm dados → pergunta, e respeita a escolha', async () => {
+test('conta nova: oferece copiar os dados locais e, se aceito, copia sem apagar os locais', async () => {
   const cloud = fakeCloud();
-  const remoto = blank(); remoto.transacoes.push({ id: 'r1' }, { id: 'r2' });
-  device(cloud, remoto).login('u1'); await tick();
-  const local = blank(); local.transacoes.push({ id: 'l1' });
   let perguntou = 0;
-  const B = device(cloud, local, async () => { perguntou++; return 'remote'; });
-  B.login('u1'); await tick();
+  const A = device(cloud, withTx('l1', 'l2'), { importLocal: async () => { perguntou++; return 'copy'; } });
+  A.login('u1'); await tick();
   assert.equal(perguntou, 1);
-  assert.equal(B.S.data().transacoes.length, 2);
-
-  const local2 = blank(); local2.transacoes.push({ id: 'l1' });
-  const C = device(cloud, local2, async () => 'local');
-  C.login('u1'); await tick();
-  assert.equal(JSON.parse(cloud.docs['usuarios/u1'].data).transacoes.length, 1);
+  assert.equal(remoteTx(cloud, 'u1'), 2);
+  assert.equal(A.S.data().transacoes.length, 2);
+  await A.logout(); await tick();
+  assert.equal(A.S.data().transacoes.length, 2); // o computador continua com os seus dados
 });
 
-test('sair com limpeza apaga os dados do navegador, mas não os da nuvem', async () => {
+test('conta nova: recusando a cópia, a conta começa vazia', async () => {
   const cloud = fakeCloud();
-  const d = blank(); d.transacoes.push({ id: 't1' });
-  const A = device(cloud, d);
+  const A = device(cloud, withTx('l1'), { importLocal: async () => 'skip' });
   A.login('u1'); await tick();
-  await A.c.signOut(true);
-  assert.equal(A.S.data().transacoes.length, 0);
-  assert.equal(JSON.parse(cloud.docs['usuarios/u1'].data).transacoes.length, 1);
-  assert.equal(A.c.user(), null);
+  assert.equal(remoteTx(cloud, 'u1'), 0);
+  assert.equal(A.S.spaces.local.transacoes.length, 1);
+});
+
+test('outro aparelho entra na mesma conta e baixa os dados; mudanças chegam em tempo real', async () => {
+  const cloud = fakeCloud();
+  const A = device(cloud, blank()), B = device(cloud, withTx('local-do-B'));
+  A.login('u1'); await tick();
+  A.S.edit((d) => d.transacoes.push({ id: 'n1' })); await tick(40);
+  B.login('u1'); await tick(40);
+  assert.deepEqual(B.S.data().transacoes.map((t) => t.id), ['n1']); // sem misturar com os dados locais do B
+  A.S.edit((d) => d.transacoes.push({ id: 'n2' })); await tick(40);
+  assert.equal(B.S.data().transacoes.length, 2);
+});
+
+test('alterações offline + outro aparelho gravou: pergunta qual manter', async () => {
+  const cloud = fakeCloud();
+  const A = device(cloud, blank());
+  A.login('u1'); await tick();
+  A.S.edit((d) => d.transacoes.push({ id: 'a1' })); await tick(40);
+  // simula: este aparelho tem pendência local e a nuvem foi alterada por outro
+  A.S.setCloudMeta('u1', { dirty: true });
+  cloud.docs['usuarios/u1'] = { data: JSON.stringify(withTx('outro1', 'outro2')), updatedAt: Date.now() + 5000 };
+  let perguntou = 0;
+  A.c.setHandlers({ conflict: async () => { perguntou++; return 'remote'; } });
+  await A.c.syncNow(); await tick();
+  assert.equal(perguntou, 1);
+  assert.equal(A.S.data().transacoes.length, 2);
 });

@@ -1,7 +1,7 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "date": "2026-11-18",
   "notes": [
-    "Login com Google e sincronização entre aparelhos (Firebase)"
+    "Dados separados: logado mostra só a conta; ao sair, só os dados locais do computador"
   ]
 }

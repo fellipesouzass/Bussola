@@ -61,7 +61,11 @@ scripts/           serve.mjs, bump.mjs
 
 ## Login com Google e sincronização (Firebase)
 
-Em **Ajustes › Dados e aparência › Conta Google** (ou no botão *Entrar* do topo) o app entra com Google e guarda uma cópia dos dados em `usuarios/{uid}` no Firestore do projeto `bussola-financas`. Offline continua funcionando; as alterações sobem sozinhas e chegam aos outros aparelhos em tempo real. Se o navegador e a conta tiverem dados diferentes no primeiro login, o app pergunta qual manter.
+O site tem dois espaços de dados que **nunca se misturam**:
+- **Sem login:** mostra e grava só os dados deste computador (localStorage).
+- **Logado com Google:** mostra e grava só os dados da conta (Firestore `usuarios/{uid}`, com cache local). Tudo que você lança fica vinculado ao login e aparece nos outros aparelhos em tempo real.
+- **Ao sair:** o site volta a mostrar apenas os dados locais do computador e apaga daqui o cache da conta (a cópia na nuvem permanece).
+- Numa conta nova, o app oferece **copiar** os dados locais para ela (os locais continuam no computador).
 
 Requisitos no console Firebase: Authentication › Google ativado, domínio `fellipesouzass.github.io` autorizado e estas regras no Firestore:
 

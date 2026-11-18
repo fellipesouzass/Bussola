@@ -7,7 +7,12 @@
 (function (root) {
   'use strict';
   const C = root.BussolaCore;
-  const KEY = 'bussola.data';
+  const LOCAL_KEY = 'bussola.data';
+  const ACCOUNT_PREFIX = 'bussola.data.u.';
+  const SESSION = 'bussola.session'; // uid da conta cujos dados estão sendo mostrados (vazio = dados locais do computador)
+  const META_PREFIX = 'bussola.cloudmeta.';
+  let KEY = LOCAL_KEY;
+  try { const u = localStorage.getItem(SESSION); if (u) KEY = ACCOUNT_PREFIX + u; } catch (e) { /* segue com os dados locais */ }
   const SKEY = 'bussola.settings';
   const SCHEMA = 1;
 
@@ -92,7 +97,7 @@
 
   /* ---------------------------------------------------------------- configurações */
 
-  const defaultSettings = { theme: 'auto', repo: '', autoCheck: true, notify: false, lastCheck: 0, lastNotifyDay: '', lastConta: '', lastCategoria: '', cloudUid: '', cloudAt: 0, cloudDirty: false };
+  const defaultSettings = { theme: 'auto', repo: '', autoCheck: true, notify: false, lastCheck: 0, lastNotifyDay: '', lastConta: '', lastCategoria: '' };
   function settings() {
     try { return { ...defaultSettings, ...JSON.parse(localStorage.getItem(SKEY) || '{}') }; } catch (e) { return { ...defaultSettings }; }
   }
@@ -317,6 +322,29 @@
   }
 
   load();
+  /* ---------------------------------------- dados locais x dados da conta */
+  /** Mostra os dados da conta (cache local por uid). Os dados locais do computador ficam intactos, em outra chave. */
+  function useAccount(uid) {
+    try { localStorage.setItem(SESSION, uid); } catch (e) { /* ignora */ }
+    KEY = ACCOUNT_PREFIX + uid;
+    load(); notify();
+  }
+  /** Volta a mostrar só os dados locais do computador e apaga o cache das contas deste navegador. */
+  function useLocal() {
+    try {
+      localStorage.removeItem(SESSION);
+      Object.keys(localStorage).filter((k) => k.startsWith(ACCOUNT_PREFIX) || k.startsWith(META_PREFIX)).forEach((k) => localStorage.removeItem(k));
+    } catch (e) { /* ignora */ }
+    KEY = LOCAL_KEY;
+    load(); notify();
+  }
+  const mode = () => (KEY === LOCAL_KEY ? 'local' : 'account');
+  function peekLocal() {
+    try { const raw = localStorage.getItem(LOCAL_KEY); return raw ? normalize(JSON.parse(raw)) : null; } catch (e) { return null; }
+  }
+  function cloudMeta(uid) { try { return { at: 0, dirty: false, ...JSON.parse(localStorage.getItem(META_PREFIX + uid) || '{}') }; } catch (e) { return { at: 0, dirty: false }; } }
+  function setCloudMeta(uid, patch) { const m = { ...cloudMeta(uid), ...patch }; try { localStorage.setItem(META_PREFIX + uid, JSON.stringify(m)); } catch (e) { /* ignora */ } return m; }
+
   window.addEventListener('storage', (e) => { if (e.key === KEY) { load(); notify(); } });
 
   root.BussolaStore = {
@@ -329,5 +357,6 @@
     upsertConta, removeConta, upsertCategoria, removeCategoria,
     upsertFixa, removeFixa, payFixa, unpayFixa,
     snapshot, restore, reset, validateBackup, loadDemo,
+    useAccount, useLocal, mode, peekLocal, cloudMeta, setCloudMeta,
   };
 })(window);

@@ -1,16 +1,17 @@
 /*
  * Bússola — login com Google + sincronização (Firebase Auth + Firestore).
  *
- * Os dados continuam no localStorage (funciona offline); logado, uma cópia fica em `usuarios/{uid}`.
- *  - 1º login: se o navegador já tem dados e a nuvem está vazia, eles sobem; se a nuvem tem dados e o navegador
- *    está vazio, eles descem; se os dois têm dados diferentes, o app pergunta qual manter.
- *  - Depois disso: cada alteração sobe sozinha (com 1,2 s de espera) e mudanças feitas em outro aparelho chegam em tempo real.
+ * Dois "espaços" de dados, nunca misturados:
+ *   · LOCAL  — os dados deste computador (sem login). É o que o site mostra quando não há conta logada.
+ *   · CONTA  — os dados do seu login. Logado, o site mostra e grava só aqui (cache local + Firestore `usuarios/{uid}`).
+ * Ao sair, o site volta a mostrar apenas os dados locais e apaga o cache da conta deste navegador.
+ * No primeiro login com a conta vazia, o app oferece COPIAR os dados locais para a conta (a cópia local continua lá).
  * A apiKey abaixo só identifica o projeto; quem protege os dados são as regras do Firestore (uid == dono).
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory;
   else {
-    const off = { available: () => false, init() {}, user: () => null, status: () => 'off', error: () => '', lastSync: () => 0, onChange() {}, setConflictHandler() {}, signIn() {}, signOut() {}, syncNow() {} };
+    const off = { available: () => false, init() {}, user: () => null, status: () => 'off', error: () => '', lastSync: () => 0, onChange() {}, setHandlers() {}, signIn() {}, signOut() {}, syncNow() {} };
     root.BussolaCloud = root.firebase && root.BussolaStore ? factory({ firebase: root.firebase, S: root.BussolaStore, version: root.BUSSOLA_VERSION }) : off;
   }
 })(typeof self !== 'undefined' ? self : this, function (deps) {
@@ -28,13 +29,16 @@
 
   let auth, db, ref = null, unsub = null, user = null;
   let status = 'off', errMsg = '', lastSync = 0;
-  let applying = false, ready = false, pushingAt = 0, timer = null, conflictHandler = null;
+  let applying = false, ready = false, pushingAt = 0, timer = null;
+  let handlers = { conflict: null, importLocal: null };
   const listeners = new Set();
   const emit = (evt, extra) => listeners.forEach((f) => { try { f(evt, extra); } catch (e) { console.error(e); } });
   const setStatus = (s, msg) => { status = s; errMsg = msg || ''; emit('status'); };
+  const quietly = (fn) => { applying = true; try { return fn(); } finally { applying = false; } };
 
-  const hasData = (d) => !!(d.transacoes.length || d.contas_fixas.length || d.categorias.some((c) => c.orcamento_mensal > 0));
-  const cfg = () => S.settings();
+  const hasData = (d) => !!(d && (d.transacoes.length || d.contas_fixas.length || d.categorias.some((c) => c.orcamento_mensal > 0)));
+  const meta = () => S.cloudMeta(user.uid);
+  const setMeta = (p) => S.setCloudMeta(user.uid, p);
 
   function readable(e) {
     const c = (e && e.code) || '';
@@ -52,7 +56,7 @@
     pushingAt = at;
     try {
       await ref.set({ data: S.snapshot(), updatedAt: at, schema: S.SCHEMA, app: deps.version || '' });
-      S.setSettings({ cloudAt: at, cloudDirty: false, cloudUid: user.uid });
+      setMeta({ at, dirty: false });
       lastSync = Date.now();
       setStatus('synced');
     } catch (e) {
@@ -61,9 +65,8 @@
   }
 
   function pull(remote) {
-    applying = true;
-    try { S.restore(remote.data); } finally { applying = false; }
-    S.setSettings({ cloudAt: remote.updatedAt, cloudDirty: false, cloudUid: user.uid });
+    quietly(() => S.restore(remote.data));
+    setMeta({ at: remote.updatedAt, dirty: false });
     lastSync = Date.now();
     setStatus('synced');
     emit('pulled');
@@ -74,16 +77,25 @@
     setStatus('syncing');
     try {
       const snap = await ref.get();
-      const s = cfg();
+      const m = meta();
       const remote = snap.exists ? snap.data() : null;
-      if (!remote) await push();
-      else if (remote.updatedAt === s.cloudAt) { if (s.cloudDirty) await push(); else { lastSync = Date.now(); setStatus('synced'); } }
-      else if (!s.cloudDirty || !hasData(S.data())) pull(remote);
+      if (!remote) {
+        // conta nova: oferece copiar os dados deste computador (que seguem intactos no espaço local)
+        const local = S.peekLocal();
+        if (!m.dirty && hasData(local) && !hasData(S.data()) && handlers.importLocal) {
+          const copy = await handlers.importLocal();
+          if (copy === 'copy') quietly(() => S.restore(JSON.stringify(local)));
+        }
+        await push();
+      } else if (remote.updatedAt === m.at) {
+        if (m.dirty) await push(); else { lastSync = Date.now(); setStatus('synced'); }
+      } else if (!m.dirty) pull(remote);
       else {
-        const choice = conflictHandler ? await conflictHandler({ remoteAt: remote.updatedAt }) : 'remote';
+        // alterações feitas aqui (offline) e outro aparelho também gravou: pergunta
+        const choice = handlers.conflict ? await handlers.conflict({ remoteAt: remote.updatedAt }) : 'remote';
         if (choice === 'local') await push();
         else if (choice === 'remote') pull(remote);
-        else { setStatus('idle'); return; } // fechou o diálogo: nada muda; tenta de novo no próximo login/sincronizar
+        else { setStatus('idle'); return; }
       }
       ready = true;
       listen();
@@ -93,31 +105,35 @@
   function listen() {
     if (unsub) unsub();
     unsub = ref.onSnapshot((snap) => {
-      if (!snap.exists || snap.metadata.hasPendingWrites) return;
-      const remote = snap.data(), s = cfg();
-      if (remote.updatedAt === s.cloudAt || remote.updatedAt === pushingAt) return;
-      if (s.cloudDirty) return; // alteração local pendente: a próxima gravação prevalece
+      if (!snap.exists || snap.metadata.hasPendingWrites || !user) return;
+      const remote = snap.data(), m = meta();
+      if (remote.updatedAt === m.at || remote.updatedAt === pushingAt) return;
+      if (m.dirty) return; // alteração local pendente: a próxima gravação prevalece
       pull(remote);
     }, (e) => setStatus('error', readable(e)));
   }
 
   function onLocalChange() {
-    if (applying || !user) return;
-    S.setSettings({ cloudDirty: true });
+    if (applying || !user) return; // sem conta logada, nada sobe: dados locais ficam só no computador
+    setMeta({ dirty: true });
     if (!ready) return;
     clearTimeout(timer);
     timer = setTimeout(push, DEBOUNCE);
   }
 
   function onUser(u) {
-    user = u;
     if (unsub) { unsub(); unsub = null; }
     clearTimeout(timer);
     ready = false;
-    if (!u) { ref = null; lastSync = 0; setStatus('off'); emit('user'); return; }
+    if (!u) {
+      user = null; ref = null; lastSync = 0;
+      quietly(() => S.useLocal()); // volta aos dados do computador e limpa o cache da conta
+      setStatus('off'); emit('user');
+      return;
+    }
+    user = u;
     ref = db.doc('usuarios/' + u.uid);
-    const s = cfg();
-    if (s.cloudUid !== u.uid) S.setSettings({ cloudUid: u.uid, cloudAt: 0, cloudDirty: hasData(S.data()) }); // 1º login (ou outra conta) neste navegador
+    quietly(() => S.useAccount(u.uid)); // a partir daqui o site mostra e grava só os dados da conta
     emit('user');
     reconcile();
   }
@@ -129,7 +145,7 @@
       auth = firebase.auth(); db = firebase.firestore();
     } catch (e) { setStatus('error', readable(e)); return; }
     S.subscribe(onLocalChange);
-    window.addEventListener('online', () => { if (user && cfg().cloudDirty) { ready ? push() : reconcile(); } });
+    window.addEventListener('online', () => { if (user && meta().dirty) { ready ? push() : reconcile(); } });
     setStatus('idle');
     auth.onAuthStateChanged(onUser);
   }
@@ -144,22 +160,16 @@
     }
   }
 
-  /** wipe: também apaga os dados deste navegador (útil em computador compartilhado). */
-  async function signOut(wipe) {
+  async function signOut() {
     clearTimeout(timer);
-    if (user && ready && cfg().cloudDirty) await push(); // não perde a última alteração
-    await auth.signOut();
-    if (wipe) {
-      applying = true;
-      try { S.reset(); } finally { applying = false; }
-      S.setSettings({ cloudAt: 0, cloudDirty: false, cloudUid: '' });
-    }
+    if (user && ready && meta().dirty) await push(); // não perde a última alteração
+    await auth.signOut(); // dispara onUser(null): volta aos dados locais
   }
 
   return {
     available: () => true, init, signIn, signOut, syncNow: () => (user ? reconcile() : null),
     user: () => user, status: () => status, error: () => errMsg, lastSync: () => lastSync,
     onChange: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
-    setConflictHandler: (fn) => { conflictHandler = fn; },
+    setHandlers: (h) => { handlers = { ...handlers, ...h }; },
   };
 });

@@ -502,23 +502,26 @@
     b.hidden = false;
     if (u) { b.className = 'acc-btn in'; b.innerHTML = photo(u) + '<i class="sync ' + Cloud.status() + '"></i>'; b.title = (u.email || '') + ' · ' + (SYNC_TXT[Cloud.status()] || ''); }
     else { b.className = 'acc-btn'; b.innerHTML = GOOGLE + '<span>Entrar</span>'; b.title = 'Entrar com Google para sincronizar'; }
-    $('#sideFoot').innerHTML = '<b>v' + esc(U.current) + '</b><br>' + (u ? 'Sincronizado com ' + esc(u.email || 'sua conta Google') + '.' : 'Dados guardados só neste navegador.');
+    $('#sideFoot').innerHTML = '<b>v' + esc(U.current) + '</b><br>' + (u ? 'Mostrando os dados da conta ' + esc(u.email || 'Google') + '.' : 'Dados guardados só neste computador.');
   }
   function accountCard() {
     if (!Cloud.available()) return '<section class="card"><div class="card-head"><h2>Conta Google</h2></div><div class="alert info">' + ico('info') + '<span>Não consegui carregar o Firebase (sem internet?). O app segue funcionando só neste navegador.</span></div></section>';
     const u = Cloud.user();
-    if (!u) return '<section class="card"><div class="card-head"><h2>Conta Google</h2></div><p class="hint" style="margin-bottom:14px">Entre com sua conta Google para ver a sua organização financeira em qualquer aparelho. Os dados deste navegador sobem para a sua conta, que só você acessa.</p>' +
+    if (!u) return '<section class="card"><div class="card-head"><h2>Conta Google</h2></div><p class="hint" style="margin-bottom:14px">Entre com sua conta Google para ver a sua organização financeira em qualquer aparelho. Logado, tudo o que você lançar fica vinculado à sua conta; sem login, o site mostra só os dados deste computador.</p>' +
       (Cloud.error() ? '<div class="alert over" style="margin-bottom:14px">' + ico('alert') + '<span>' + esc(Cloud.error()) + '</span></div>' : '') +
       '<button class="btn btn-primary" data-act="cloud-signin">' + GOOGLE + 'Entrar com Google</button></section>';
     const st = Cloud.status(), last = Cloud.lastSync();
     return '<section class="card"><div class="card-head"><h2>Conta Google</h2></div><div class="who">' + photo(u) + '<div><b>' + esc(u.displayName || 'Conta Google') + '</b><span>' + esc(u.email || '') + '</span></div></div>' +
       '<div class="alert ' + (st === 'error' ? 'over' : st === 'synced' ? 'ok' : 'info') + '">' + ico(st === 'error' ? 'alert' : st === 'synced' ? 'check' : 'refresh') + '<span>' + esc(st === 'error' && Cloud.error() ? Cloud.error() : (SYNC_TXT[st] || '') + (st === 'synced' && last ? ' às ' + new Date(last).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '')) + '</span></div>' +
-      '<p class="hint" style="margin:12px 0">As alterações sobem sozinhas e aparecem nos seus outros aparelhos em segundos.</p>' +
-      '<div class="btn-row"><button class="btn" data-act="cloud-sync">' + ico('refresh') + 'Sincronizar agora</button><button class="btn" data-act="cloud-signout">Sair</button><button class="btn btn-danger" data-act="cloud-wipe">Sair e apagar dados daqui</button></div></section>';
+      '<p class="hint" style="margin:12px 0">Você está vendo os dados da conta. Tudo o que lançar fica vinculado a ela e aparece nos seus outros aparelhos em segundos. Ao sair, o site volta a mostrar apenas os dados deste computador (e a cópia da conta é removida daqui).</p>' +
+      '<div class="btn-row"><button class="btn" data-act="cloud-sync">' + ico('refresh') + 'Sincronizar agora</button><button class="btn" data-act="cloud-signout">Sair</button></div></section>';
+  }
+  function importDlg() {
+    return openDialog(sheet('Conta nova', '<p class="muted" style="margin-bottom:16px">Esta conta Google ainda não tem dados na nuvem, e este computador tem lançamentos guardados localmente. Quer copiá-los para a conta?</p><div class="choice"><button class="btn" data-close="copy" autofocus>Copiar para a conta<span class="muted small" style="margin-left:auto">os dados locais continuam aqui</span></button><button class="btn" data-close="skip">Começar a conta vazia<span class="muted small" style="margin-left:auto">sem copiar</span></button></div><p class="hint" style="margin-top:12px">Sem login, o site sempre volta a mostrar os dados deste computador.</p>'));
   }
   function conflictDlg(info) {
     const quando = new Date(info.remoteAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-    return openDialog(sheet('Dados diferentes encontrados', '<p class="muted" style="margin-bottom:16px">Este navegador e a sua conta Google têm dados diferentes. Qual você quer manter? O outro será substituído.</p><div class="choice"><button class="btn" data-close="remote" autofocus>Usar os dados da conta<span class="muted small" style="margin-left:auto">salvos em ' + esc(quando) + '</span></button><button class="btn" data-close="local">Manter os dados deste navegador<span class="muted small" style="margin-left:auto">substitui a conta</span></button></div><p class="hint" style="margin-top:12px">Dica: faça um backup em Ajustes › Dados antes, se tiver dúvida.</p>'));
+    return openDialog(sheet('Alterações em conflito', '<p class="muted" style="margin-bottom:16px">Há alterações feitas aqui que ainda não subiram, e outro aparelho alterou a conta nesse meio tempo. Qual versão da conta você quer manter? A outra será substituída.</p><div class="choice"><button class="btn" data-close="remote" autofocus>Usar os dados da conta<span class="muted small" style="margin-left:auto">salvos em ' + esc(quando) + '</span></button><button class="btn" data-close="local">Manter as alterações deste aparelho<span class="muted small" style="margin-left:auto">substitui a conta</span></button></div><p class="hint" style="margin-top:12px">Dica: faça um backup em Ajustes › Dados antes, se tiver dúvida.</p>'));
   }
 
   /* ---- Atualizações via GitHub */
@@ -903,11 +906,7 @@
     acc: () => { if (Cloud.user()) { ui.ajTab = 'dados'; goPage('ajustes'); } else Cloud.signIn(); },
     'cloud-signin': () => Cloud.signIn(),
     'cloud-sync': () => { toast('Sincronizando…'); Cloud.syncNow(); },
-    'cloud-signout': async () => { await Cloud.signOut(false); toast('Você saiu. Os dados continuam neste navegador.'); },
-    'cloud-wipe': async () => {
-      if (!(await confirmDlg('Sair e apagar os dados daqui?', 'Os dados <b>deste navegador</b> serão removidos. A cópia na sua conta Google continua na nuvem e volta quando você entrar de novo.', 'Sair e apagar'))) return;
-      await Cloud.signOut(true); toast('Você saiu e os dados locais foram apagados.');
-    },
+    'cloud-signout': async () => { await Cloud.signOut(); toast('Você saiu. O site voltou a mostrar só os dados deste computador.'); },
     'goto-fixas': () => { ui.contasTab = 'fixas'; goPage('contas'); },
     'goto-cats': () => { ui.ajTab = 'categorias'; goPage('ajustes'); },
     'goto-tx': () => goPage('transacoes'),
@@ -1040,11 +1039,11 @@
 
   function boot() {
     buildNav();
-    Cloud.setConflictHandler(conflictDlg);
+    Cloud.setHandlers({ conflict: conflictDlg, importLocal: importDlg });
     Cloud.onChange((evt, msg) => {
       updateAccBtn();
       if (evt === 'error') toast(msg, { kind: 'error', ms: 8000 });
-      if (evt === 'user' && Cloud.user()) toast('Conectado como ' + (Cloud.user().email || 'sua conta Google') + '.');
+      if (evt === 'user' && Cloud.user()) toast('Conectado como ' + (Cloud.user().email || 'sua conta Google') + '. Você está vendo os dados da conta.');
       if (evt === 'pulled') toast('Dados carregados da sua conta.');
       if (ui.page === 'ajustes' && ui.ajTab === 'dados' && !dlg.open) renderPane(false);
     });
