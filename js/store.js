@@ -177,6 +177,17 @@
     });
   }
 
+  /** Marca (ou desmarca) uma fatura de cartão como paga antes do vencimento. `fechamento` = data de fechamento da fatura. */
+  function setInvoicePaid(contaId, fechamento, paid) {
+    return commit((d) => {
+      const c = byId(d.contas, contaId);
+      if (!c) return;
+      const set = new Set(c.faturas_pagas || []);
+      if (paid) set.add(fechamento); else set.delete(fechamento);
+      c.faturas_pagas = [...set].sort().slice(-24); // guarda só as mais recentes
+    });
+  }
+
   /** Remove uma conta sem apagar lançamentos: eles são movidos para `moveTo`. */
   function removeConta(id, moveTo) {
     return commit((d) => {
@@ -354,7 +365,7 @@
     error: () => lastError,
     settings, setSettings, conta, categoria,
     addTransacao, updateTransacao, removeTransacao, importTransacoes,
-    upsertConta, removeConta, upsertCategoria, removeCategoria,
+    upsertConta, removeConta, setInvoicePaid, upsertCategoria, removeCategoria,
     upsertFixa, removeFixa, payFixa, unpayFixa,
     snapshot, restore, reset, validateBackup, loadDemo,
     useAccount, useLocal, mode, peekLocal, cloudMeta, setCloudMeta,

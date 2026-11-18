@@ -71,6 +71,31 @@ test('fatura estimada soma só o ciclo correto', () => {
   assert.equal(C.creditCommitted(conta, txs, '2026-11-05'), 2000 + 3000 + 4000 - 500);
 });
 
+test('fatura vencida some do cartão (cartão vence dia 20, compra de R$ 20)', () => {
+  const conta = { id: 'cc', tipo: 'credito', dia_fechamento: 10, dia_vencimento: 20 };
+  const compra = tx({ conta_id: 'cc', data: '2026-11-05', valor: 2000 });
+  const pend = (hoje) => C.invoiceList(conta, [compra], hoje);
+  assert.equal(pend('2026-11-08')[0].status, 'aberta');
+  assert.equal(pend('2026-11-12')[0].status, 'fechada'); // fechou dia 10, vence dia 20
+  assert.equal(pend('2026-11-12')[0].total, 2000);
+  assert.equal(pend('2026-11-20').length, 1); // no dia do vencimento ainda está pendente
+  assert.equal(C.creditCommitted(conta, [compra], '2026-11-20'), 2000);
+  assert.equal(pend('2026-11-21').length, 0); // passou do vencimento: sumiu
+  assert.equal(C.creditCommitted(conta, [compra], '2026-11-21'), 0);
+  assert.equal(C.isPaidCharge(compra, conta, '2026-11-21'), true);
+  assert.equal(C.isPaidCharge(compra, conta, '2026-11-20'), false);
+  assert.equal(C.isPaidCharge(compra, { tipo: 'pix' }, '2026-11-21'), false);
+  // a compra continua no histórico do mês
+  assert.equal(C.summary([compra], '2026-11').despesas, 2000);
+});
+
+test('fatura marcada como paga antes do vencimento sai da lista; faturas futuras seguem', () => {
+  const conta = { id: 'cc', tipo: 'credito', dia_fechamento: 10, dia_vencimento: 20, faturas_pagas: ['2026-11-10'] };
+  const txs = [tx({ conta_id: 'cc', data: '2026-11-05', valor: 2000 }), tx({ conta_id: 'cc', data: '2026-11-15', valor: 700 })];
+  const l = C.invoiceList(conta, txs, '2026-11-12');
+  assert.deepEqual(l.map((i) => [i.end, i.total]), [['2026-12-10', 700]]);
+});
+
 test('saldo e gasto por categoria do mês conferem com os lançamentos', () => {
   const txs = [
     tx({ tipo: 'receita', valor: 500000, data: '2026-11-05' }),

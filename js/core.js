@@ -175,12 +175,35 @@
     return { ...c, total };
   }
 
-  /** Quanto do limite está comprometido: tudo o que cai da fatura atual em diante. */
-  function creditCommitted(conta, txs, ref) {
-    const c = invoiceCycle(conta, ref);
-    let total = 0;
-    for (const t of txs) if (t.conta_id === conta.id && t.data >= c.start) total -= signed(t);
-    return Math.max(0, total);
+  /**
+   * Fatura paga: passou do vencimento (paga automaticamente) ou foi marcada como paga antes (conta.faturas_pagas guarda o dia de fechamento).
+   * Compras de uma fatura paga saem da fatura pendente e do limite comprometido, mas continuam no histórico.
+   */
+  const invoiceIsPaid = (conta, cycle, today) => today > cycle.due || (conta.faturas_pagas || []).includes(cycle.end);
+  const invoiceStatus = (conta, cycle, today) => (invoiceIsPaid(conta, cycle, today) ? 'paga' : today <= cycle.end ? 'aberta' : 'fechada');
+
+  /** Faturas ainda pendentes (abertas ou fechadas e não vencidas), em ordem, com o total de cada uma. */
+  function invoiceList(conta, txs, today) {
+    const map = {};
+    for (const t of txs) {
+      if (t.conta_id !== conta.id) continue;
+      const c = invoiceCycle(conta, t.data);
+      if (invoiceIsPaid(conta, c, today)) continue;
+      const m = map[c.end] || (map[c.end] = { ...c, total: 0, count: 0 });
+      m.total -= signed(t);
+      m.count++;
+    }
+    return Object.values(map).map((i) => ({ ...i, status: invoiceStatus(conta, i, today) })).sort((a, b) => (a.end < b.end ? -1 : 1));
+  }
+
+  /** Quanto do limite está comprometido: soma das faturas ainda pendentes (inclui parcelas futuras). */
+  function creditCommitted(conta, txs, today) {
+    return Math.max(0, invoiceList(conta, txs, today).reduce((s, i) => s + i.total, 0));
+  }
+
+  /** A compra pertence a uma fatura de cartão já paga? */
+  function isPaidCharge(t, conta, today) {
+    return !!conta && conta.tipo === 'credito' && invoiceIsPaid(conta, invoiceCycle(conta, t.data), today);
   }
 
   /** Saldo de contas que não são cartão: receitas - despesas até hoje. */
@@ -457,6 +480,7 @@
     TZ, MESES, fmtBRL, parseMoney, todayISO, parseISO, isoOf, daysInMonth, clampDay, shiftMonth, addMonths, addDays, daysBetween,
     monthKey, shiftMonthKey, monthLabel, monthShort, fmtDate, fmtShort, dayHeading, isValidISO,
     splitInstallments, buildInstallments, invoiceCycle, invoiceTotal, creditCommitted, accountBalance,
+    invoiceIsPaid, invoiceStatus, invoiceList, isPaidCharge,
     summary, inMonth, spentByCategory, budgetLevel, budgetPercent, budgetTotal, budgetRows,
     fixedDueDate, fixedStatus, fixedOccurrences, projection, compareMonths, riskRanking,
     normText, parseCSV, detectMapping, parseDate, importHash, buildImport, toCSV, compareVersions,

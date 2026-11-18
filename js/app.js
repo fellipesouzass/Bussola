@@ -201,6 +201,10 @@
     const pend = occ.filter((o) => o.status !== 'paga');
     const vencidas = occ.filter((o) => o.status === 'vencida');
     const recent = C.inMonth(d.transacoes, mk).sort(byDateDesc).slice(0, 6);
+    // faturas de cartão ainda pendentes (as vencidas já saíram sozinhas)
+    const faturas = d.contas.filter((c) => c.tipo === 'credito')
+      .flatMap((c) => C.invoiceList(c, d.transacoes, hoje).filter((i) => i.total > 0 && i.start <= C.addDays(hoje, 45)).map((i) => ({ c, i })))
+      .sort((x, y) => (x.i.due < y.i.due ? -1 : 1)).slice(0, 4);
 
     let titulo;
     if (mk > cur) titulo = 'Já estão previstos <b class="money">' + R(p.projecao) + '</b> neste mês';
@@ -243,6 +247,11 @@
         '<section class="card st"><div class="card-head"><h2>Orçamento por categoria</h2><button class="link" data-act="goto-cats">Editar limites</button></div><div class="list">' + budget + '</div></section>' +
       '</div>' +
       '<div class="stack">' +
+        (faturas.length ? '<section class="card st"><div class="card-head"><h2>Faturas dos cartões</h2><button class="link" data-act="goto-cartoes">Ver cartões</button></div><div class="list">' + faturas.map(({ c, i }) => {
+          const dias = C.daysBetween(hoje, i.due);
+          return '<div class="row" style="--c:#8e6bd8;cursor:default"><span class="row-ico">' + ico('credito') + '</span><div class="row-main"><div class="row-title">' + esc(c.nome) + ' · ' + (i.status === 'fechada' ? 'fechada' : 'aberta') + '</div><div class="row-meta">vence ' + C.fmtShort(i.due) + (dias === 0 ? ' (hoje)' : ' (em ' + dias + (dias === 1 ? ' dia' : ' dias') + ')') + '</div></div><span class="row-amt money">' + R(i.total) + '</span>' +
+            (i.status === 'fechada' ? '<button class="btn btn-sm" data-act="inv-pay" data-conta="' + esc(c.id) + '" data-end="' + i.end + '">Já paguei</button>' : '') + '</div>';
+        }).join('') + '</div></section>' : '') +
         '<section class="card st"><div class="card-head"><h2>Contas fixas</h2><button class="link" data-act="goto-fixas">Ver todas</button></div><div class="list">' + fixasCard + '</div></section>' +
         '<section class="card st"><div class="card-head"><h2>Últimos lançamentos</h2><button class="link" data-act="goto-tx">Ver todos</button></div><div class="list">' +
           (recent.length ? recent.map(txRow).join('') : '<div class="empty small">' + ico('list') + '<b>Sem lançamentos</b>Toque no botão + para começar.</div>') + '</div></section>' +
@@ -264,7 +273,7 @@
   /* ---------------------------------------------------------------- Transações */
   function txRow(t) {
     const c = cat(t.categoria_id), a = conta(t.conta_id);
-    const meta = [c.nome, a.nome, t.total_parcelas ? 'parcela ' + t.parcela_atual + '/' + t.total_parcelas : '', t.conta_fixa_id ? 'conta fixa' : '', t.data > today() ? 'agendada' : ''].filter(Boolean).join(' · ');
+    const meta = [c.nome, a.nome, t.total_parcelas ? 'parcela ' + t.parcela_atual + '/' + t.total_parcelas : '', t.conta_fixa_id ? 'conta fixa' : '', t.data > today() ? 'agendada' : '', C.isPaidCharge(t, a, today()) ? 'fatura paga' : ''].filter(Boolean).join(' · ');
     return '<div class="row" role="button" tabindex="0" data-act="tx-edit" data-id="' + esc(t.id) + '" style="--c:' + safeColor(c.cor) + '">' +
       '<span class="row-ico"><b>' + esc((c.nome || '?').trim().charAt(0).toUpperCase()) + '</b></span>' +
       '<div class="row-main"><div class="row-title">' + esc(t.descricao || c.nome) + '</div><div class="row-meta">' + esc(meta) + '</div></div>' +
@@ -323,12 +332,18 @@
       const t = ACC[a.tipo] || ACC.pix;
       let body;
       if (a.tipo === 'credito') {
-        const f = C.invoiceTotal(a, d.transacoes, hoje);
-        const prox = C.invoiceTotal(a, d.transacoes, C.addDays(f.end, 1));
+        const pend = C.invoiceList(a, d.transacoes, hoje); // só faturas ainda não vencidas/pagas
+        const f = C.invoiceCycle(a, hoje);
+        const atual = pend.find((i) => i.end === f.end);
+        const prox = pend.find((i) => i.end > f.end);
         const used = C.creditCommitted(a, d.transacoes, hoje);
         const ratio = a.limite > 0 ? used / a.limite : 0;
-        body = '<div><div class="eyebrow">Fatura estimada</div><div class="acc-big money">' + R(f.total) + '</div></div>' +
-          '<div class="kv"><div><span>Ciclo</span><span>' + C.fmtShort(f.start) + ' a ' + C.fmtShort(f.end) + '</span></div><div><span>Vencimento</span><span>' + C.fmtDate(f.due) + '</span></div><div><span>Próxima fatura</span><span class="money">' + R(prox.total) + '</span></div></div>' +
+        const fechadas = pend.filter((i) => i.status === 'fechada').map((i) => {
+          const dias = C.daysBetween(hoje, i.due);
+          return '<div class="alert info" style="flex-wrap:wrap;align-items:center;gap:8px 12px"><span style="flex:1;min-width:150px"><b>Fatura fechada: <span class="money">' + R(i.total) + '</span></b><br><span class="small">vence ' + C.fmtShort(i.due) + (dias === 0 ? ' (hoje)' : ' (em ' + dias + (dias === 1 ? ' dia' : ' dias') + ')') + ' · some sozinha depois do vencimento</span></span><button class="btn btn-sm" data-act="inv-pay" data-conta="' + esc(a.id) + '" data-end="' + i.end + '">Já paguei</button></div>';
+        }).join('');
+        body = fechadas + '<div><div class="eyebrow">Fatura atual (aberta)</div><div class="acc-big money">' + R(atual ? atual.total : 0) + '</div></div>' +
+          '<div class="kv"><div><span>Ciclo</span><span>' + C.fmtShort(f.start) + ' a ' + C.fmtShort(f.end) + '</span></div><div><span>Vencimento</span><span>' + C.fmtDate(f.due) + '</span></div><div><span>Próxima fatura</span><span class="money">' + R(prox ? prox.total : 0) + '</span></div></div>' +
           (a.limite > 0 ? '<div><div class="bar ' + C.budgetLevel(used, a.limite) + '" style="--w:' + Math.min(100, ratio * 100).toFixed(1) + '%"><i></i></div><div class="hint" style="margin-top:6px">' + R(used) + ' de ' + R(a.limite) + ' do limite comprometido</div></div>' : '');
       } else {
         const bal = C.accountBalance(a, d.transacoes, hoje);
@@ -742,7 +757,7 @@
     const body = '<form class="form" id="accForm" autocomplete="off">' +
       '<div class="field"><label for="aNome">Nome</label><input class="input" id="aNome" maxlength="40" placeholder="Ex.: Nubank, Carteira" required autofocus></div>' +
       '<div class="field"><span class="label">Tipo</span>' + segHTML('full', [['pix', 'Pix'], ['debito', 'Débito'], ['credito', 'Crédito'], ['dinheiro', 'Dinheiro']], f.tipo) + '</div>' +
-      '<div class="collapse" id="aCred"><div><div class="grid g3" style="gap:12px;padding-top:2px"><div class="field"><label for="aLim">Limite (R$)</label><input class="input" id="aLim" inputmode="numeric" placeholder="0,00"></div><div class="field"><label for="aFech">Dia de fechamento</label><input class="input" id="aFech" type="number" min="1" max="31"></div><div class="field"><label for="aVenc">Dia de vencimento</label><input class="input" id="aVenc" type="number" min="1" max="31"></div></div></div></div>' +
+      '<div class="collapse" id="aCred"><div><div class="grid g3" style="gap:12px;padding-top:2px"><div class="field"><label for="aLim">Limite (R$)</label><input class="input" id="aLim" inputmode="numeric" placeholder="0,00"></div><div class="field"><label for="aFech">Dia de fechamento</label><input class="input" id="aFech" type="number" min="1" max="31"></div><div class="field"><label for="aVenc">Dia de vencimento</label><input class="input" id="aVenc" type="number" min="1" max="31"></div></div><p class="hint" style="margin-top:10px">As compras neste cartão entram na fatura do ciclo (fechamento a fechamento). Passando o dia do vencimento, a fatura é considerada paga e sai da fatura pendente e do limite comprometido — o histórico de lançamentos continua.</p></div></div>' +
       '<div class="btn-row">' + (a ? '<button type="button" class="btn btn-danger" id="aDel">' + ico('trash') + 'Excluir</button>' : '') + '<button class="btn btn-primary" style="flex:1;padding:14px">' + (a ? 'Salvar' : 'Criar') + '</button></div></form>';
     openDialog(sheet(a ? 'Editar conta' : 'Nova conta', body), {
       mount(root) {
@@ -907,6 +922,8 @@
     'cloud-signin': () => Cloud.signIn(),
     'cloud-sync': () => { toast('Sincronizando…'); Cloud.syncNow(); },
     'cloud-signout': async () => { await Cloud.signOut(); toast('Você saiu. O site voltou a mostrar só os dados deste computador.'); },
+    'inv-pay': (el) => { const snap = S.snapshot(); S.setInvoicePaid(el.dataset.conta, el.dataset.end, true); undoable('Fatura marcada como paga.', snap); },
+    'goto-cartoes': () => { ui.contasTab = 'carteiras'; goPage('contas'); },
     'goto-fixas': () => { ui.contasTab = 'fixas'; goPage('contas'); },
     'goto-cats': () => { ui.ajTab = 'categorias'; goPage('ajustes'); },
     'goto-tx': () => goPage('transacoes'),
@@ -1029,9 +1046,11 @@
     if (!s.notify || !('Notification' in window) || Notification.permission !== 'granted' || s.lastNotifyDay === hoje) return;
     const d = D();
     const itens = C.fixedOccurrences(d.contas_fixas, C.monthKey(hoje), d.transacoes, hoje).filter((o) => o.status === 'vencida' || (o.status === 'a_vencer' && o.dias <= 2));
-    if (!itens.length) return;
+    const cartoes = d.contas.filter((c) => c.tipo === 'credito').flatMap((c) => C.invoiceList(c, d.transacoes, hoje).filter((i) => i.status === 'fechada' && i.total > 0 && C.daysBetween(hoje, i.due) <= 2).map((i) => ({ c, i })));
+    if (!itens.length && !cartoes.length) return;
     S.setSettings({ lastNotifyDay: hoje });
-    const body = itens.map((o) => o.cf.nome + ' — ' + (o.status === 'vencida' ? 'vencida' : o.dias === 0 ? 'vence hoje' : 'vence em ' + o.dias + 'd') + ' (' + R(o.cf.valor) + ')').join('\n');
+    const body = itens.map((o) => o.cf.nome + ' — ' + (o.status === 'vencida' ? 'vencida' : o.dias === 0 ? 'vence hoje' : 'vence em ' + o.dias + 'd') + ' (' + R(o.cf.valor) + ')')
+      .concat(cartoes.map(({ c, i }) => 'Fatura ' + c.nome + ' — vence ' + C.fmtShort(i.due) + ' (' + R(i.total) + ')')).join('\n');
     const opts = { body, icon: 'assets/logo.png', tag: 'bussola-vencimentos' };
     if (navigator.serviceWorker && navigator.serviceWorker.ready) navigator.serviceWorker.ready.then((r) => r.showNotification('Contas fixas a pagar', opts)).catch(() => new Notification('Contas fixas a pagar', opts));
     else new Notification('Contas fixas a pagar', opts);
