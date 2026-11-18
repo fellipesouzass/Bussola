@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "date": "2026-11-18",
+  "notes": [
+    "Primeira versão: lançamentos rápidos, carteiras e parcelas, orçamento por categoria, contas fixas, projeção do mês, análise e importação de CSV.",
+    "Atualizações automáticas via GitHub."
+  ]
+}

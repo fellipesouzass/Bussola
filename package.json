@@ -1,0 +1,12 @@
+{
+  "name": "bussola",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bússola — organização financeira pessoal (HTML, CSS e JS, sem dependências).",
+  "scripts": {
+    "test": "node --test \"tests/*.test.js\"",
+    "start": "node scripts/serve.mjs",
+    "bump": "node scripts/bump.mjs"
+  },
+  "license": "MIT"
+}
