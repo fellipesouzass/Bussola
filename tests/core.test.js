@@ -160,6 +160,33 @@ test('contas fixas: status derivado e sem duplicar ocorrências', () => {
   assert.deepEqual(a.map((o) => o.cf.id), b.map((o) => o.cf.id));
 });
 
+test('receita recorrente (salário): status, a receber e lançamento automático sem duplicar', () => {
+  const sal = { id: 's1', tipo: 'receita', auto: true, nome: 'Salário', valor: 500000, dia_vencimento: 5, categoria_id: 'r', ativa: true, inicio: '2026-01' };
+  const aluguel = { id: 'f1', nome: 'Aluguel', valor: 100000, dia_vencimento: 20, categoria_id: 'c1', ativa: true, inicio: '2026-01' };
+  assert.equal(C.isIncome(sal), true);
+  assert.equal(C.isIncome(aluguel), false);
+  // antes do dia: a receber, ainda não é para lançar
+  assert.equal(C.pendingIncome([sal, aluguel], '2026-11', [], '2026-11-03'), 500000);
+  assert.equal(C.dueRecurring([sal, aluguel], [], '2026-11-03').length, 0);
+  // no dia 5: é para lançar (e só a receita, nunca a despesa fixa)
+  assert.deepEqual(C.dueRecurring([sal, aluguel], [], '2026-11-05').map((o) => o.cf.id), ['s1']);
+  // recebida (lançamento vinculado): sai de "a receber" e de "devidas"
+  const recebido = tx({ tipo: 'receita', conta_fixa_id: 's1', competencia: '2026-11', valor: 500000, data: '2026-11-05' });
+  assert.equal(C.pendingIncome([sal], '2026-11', [recebido], '2026-11-10'), 0);
+  assert.equal(C.dueRecurring([sal], [recebido], '2026-11-10').length, 0);
+  // mês pulado (usuário desfez o recebimento): não relança
+  assert.equal(C.dueRecurring([{ ...sal, puladas: ['2026-11'] }], [], '2026-11-10').length, 0);
+  assert.equal(C.dueRecurring([{ ...sal, puladas: ['2026-10'] }], [], '2026-11-10').length, 1);
+  // sem a opção automática, não lança sozinha
+  assert.equal(C.dueRecurring([{ ...sal, auto: false }], [], '2026-11-10').length, 0);
+  // só vale a partir do mês de início e enquanto ativa
+  assert.equal(C.dueRecurring([{ ...sal, inicio: '2026-12' }], [], '2026-11-10').length, 0);
+  assert.equal(C.dueRecurring([{ ...sal, ativa: false }], [], '2026-11-10').length, 0);
+  // a projeção de gastos não soma a receita recorrente como despesa pendente
+  const p = C.projection([], [sal, aluguel], '2026-11', '2026-11-03', 0);
+  assert.equal(p.fixasPendentes, 100000);
+});
+
 test('projeção inclui contas fixas pendentes e parcelas futuras', () => {
   const fixa = { id: 'f1', nome: 'Aluguel', valor: 100000, dia_vencimento: 20, ativa: true, inicio: '2026-01' };
   const hoje = '2026-11-10';

@@ -280,6 +280,21 @@
       .sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : 0));
   }
 
+  /* ------------------------------------------------- receitas recorrentes (ex.: salário) */
+
+  /** Uma conta fixa com tipo 'receita' é uma receita recorrente (mesma mecânica: ocorrência derivada por mês, status por lançamento vinculado). */
+  const isIncome = (cf) => cf.tipo === 'receita';
+
+  /** Total de receitas recorrentes do mês ainda não recebidas. */
+  function pendingIncome(fixas, mk, txs, today) {
+    return fixedOccurrences(fixas, mk, txs, today).filter((o) => isIncome(o.cf) && o.status !== 'paga').reduce((s, o) => s + o.cf.valor, 0);
+  }
+
+  /** Receitas recorrentes automáticas do mês atual cujo dia já chegou e que ainda não foram lançadas. */
+  function dueRecurring(fixas, txs, today) {
+    return fixedOccurrences(fixas, monthKey(today), txs, today).filter((o) => isIncome(o.cf) && o.cf.auto && o.status !== 'paga' && today >= o.due && !(o.cf.puladas || []).includes(monthKey(today)));
+  }
+
   /* ------------------------------------------------------------------ projeção */
 
   /**
@@ -304,7 +319,7 @@
     }
     let fixasPendentes = 0;
     if (mk >= cur) {
-      for (const o of fixedOccurrences(fixas, mk, txs, today)) if (o.status !== 'paga') fixasPendentes += o.cf.valor;
+      for (const o of fixedOccurrences(fixas, mk, txs, today)) if (o.status !== 'paga' && !isIncome(o.cf)) fixasPendentes += o.cf.valor;
     }
     const ritmo = dayN > 0 ? Math.round((avulsoAteHoje / dayN) * dim) : 0;
     const projecao = ritmo + fixasPagas + fixasPendentes + futuros;
@@ -484,7 +499,7 @@
     splitInstallments, buildInstallments, invoiceCycle, invoiceTotal, creditCommitted, accountBalance,
     invoiceIsPaid, invoiceStatus, invoiceList, isPaidCharge,
     summary, inMonth, spentByCategory, budgetLevel, budgetPercent, budgetTotal, budgetRows,
-    fixedDueDate, fixedStatus, fixedOccurrences, projection, compareMonths, riskRanking,
+    fixedDueDate, fixedStatus, fixedOccurrences, isIncome, pendingIncome, dueRecurring, projection, compareMonths, riskRanking,
     normText, parseCSV, detectMapping, parseDate, importHash, buildImport, toCSV, compareVersions,
   };
 });

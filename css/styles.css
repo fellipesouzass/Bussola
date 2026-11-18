@@ -452,3 +452,6 @@ table.prev { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .prow { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 10px; }
 .prow .input { padding: 8px 12px; text-align: right; font-variant-numeric: tabular-nums; }
 .amount[readonly] { cursor: default; }
+
+/* Receitas recorrentes */
+.chip-stat.wait i { background: #f6c96f; }

@@ -1,7 +1,7 @@
 {
-  "version": "1.4.0",
+  "version": "1.5.0",
   "date": "2026-11-18",
   "notes": [
-    "Compras com juros: informe o valor de cada parcela ao lançar e ajuste parcela por parcela ao editar"
+    "Receitas recorrentes (ex.: salário): cadastre uma vez e o recebimento é lançado todo mês, sozinho ou com o botão Recebi"
   ]
 }

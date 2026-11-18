@@ -19,7 +19,7 @@ Também funciona abrindo `index.html` direto do disco (só o botão "Atualizar a
 | 2. Lançamento rápido (botão **+** ou tecla **N**), busca, filtro por conta, exportar CSV, saldo do mês | Início / Transações |
 | 3. Carteiras e cartões, parcelas (mesmo `grupo_parcela_id`), fatura estimada por ciclo, "só esta parcela / todas" | Contas › Carteiras |
 | 4. Orçamento por categoria, alertas em 80% e 100%, barras de progresso | Início, Ajustes › Categorias |
-| 5. Contas fixas com status derivado (paga / vencida / a vencer), "Pagar" cria o lançamento vinculado, lembrete de vencimento | Contas › Contas fixas |
+| 5. Contas fixas com status derivado (paga / vencida / a vencer), "Pagar" cria o lançamento vinculado, lembrete de vencimento. **Receitas recorrentes** (ex.: salário): mesma mecânica, com opção de lançar sozinha no dia | Contas › Fixas e recorrentes |
 | 6. Projeção de fechamento do mês | Início (medidor em forma de bússola) |
 | 7. Análise: cards, comparativo com o mês anterior, ranking de risco, rosca por categoria | Análise |
 | 8. Importação de CSV com mapeamento de colunas e hash anti-duplicata | Ajustes › Importar CSV |

@@ -269,7 +269,7 @@
       const ja = d.transacoes.find((t) => t.conta_fixa_id === id && (t.competencia || t.data.slice(0, 7)) === mk);
       if (ja) return ja;
       const t = {
-        id: uid(), tipo: 'despesa', valor: f.valor, data, categoria_id: f.categoria_id, conta_id: contaId, descricao: f.nome,
+        id: uid(), tipo: f.tipo === 'receita' ? 'receita' : 'despesa', valor: f.valor, data, categoria_id: f.categoria_id, conta_id: contaId, descricao: f.nome,
         parcela_atual: null, total_parcelas: null, grupo_parcela_id: null, conta_fixa_id: id, competencia: mk, hash_importacao: null,
       };
       d.transacoes.push(t);
@@ -277,8 +277,33 @@
     });
   }
 
+  /**
+   * Lança sozinhas as receitas recorrentes marcadas como automáticas (ex.: salário) do mês atual cujo dia já chegou.
+   * Seguro para chamar várias vezes: o lançamento fica vinculado (conta_fixa_id + competência), então não duplica.
+   */
+  function runRecurring(today) {
+    if (!C.dueRecurring(state.contas_fixas, state.transacoes, today).length) return 0; // nada a lançar: não grava nem sincroniza à toa
+    return commit((d) => {
+      let n = 0;
+      for (const o of C.dueRecurring(d.contas_fixas, d.transacoes, today)) {
+        const conta = byId(d.contas, o.cf.conta_id) || d.contas.find((c) => c.tipo !== 'credito') || d.contas[0];
+        if (!conta) continue;
+        d.transacoes.push({
+          id: uid(), tipo: 'receita', valor: o.cf.valor, data: o.due, categoria_id: o.cf.categoria_id, conta_id: conta.id, descricao: o.cf.nome,
+          parcela_atual: null, total_parcelas: null, grupo_parcela_id: null, conta_fixa_id: o.cf.id, competencia: monthOf(today), hash_importacao: null,
+        });
+        n++;
+      }
+      return n;
+    });
+  }
+  const monthOf = (iso) => iso.slice(0, 7);
+
   function unpayFixa(id, mk) {
     return commit((d) => {
+      const f = byId(d.contas_fixas, id);
+      // receita automática desfeita pelo usuário: não relança sozinha neste mês (dá para marcar "Recebi" de novo)
+      if (f && f.tipo === 'receita' && f.auto) f.puladas = [...new Set([...(f.puladas || []), mk])].sort().slice(-12);
       d.transacoes = d.transacoes.filter((t) => !(t.conta_fixa_id === id && (t.competencia || t.data.slice(0, 7)) === mk));
     });
   }
@@ -319,7 +344,6 @@
       parcela_atual: null, total_parcelas: null, grupo_parcela_id: null, conta_fixa_id: null, competencia: null, hash_importacao: null,
     });
     for (const m of [prev, mk]) {
-      add(m, 5, 'receita', 550000, 'Salário', pix, 'Salário');
       add(m, 2, 'despesa', 18790, 'Alimentação', pix, 'Supermercado');
       add(m, 9, 'despesa', 6450, 'Alimentação', cc.id, 'Restaurante');
       add(m, 14, 'despesa', 23490, 'Alimentação', pix, 'Supermercado');
@@ -334,14 +358,15 @@
       { id: uid(), nome: 'Internet', valor: 11990, dia_vencimento: 15, categoria_id: cat('Moradia'), ativa: true, inicio: prev },
       { id: uid(), nome: 'Academia', valor: 9990, dia_vencimento: 20, categoria_id: cat('Saúde'), ativa: true, inicio: prev },
       { id: uid(), nome: 'Streaming', valor: 3990, dia_vencimento: 8, categoria_id: cat('Lazer'), ativa: true, inicio: prev },
+      { id: uid(), tipo: 'receita', auto: true, conta_id: pix, nome: 'Salário', valor: 550000, dia_vencimento: 5, categoria_id: cat('Salário'), ativa: true, inicio: prev },
     ];
     // contas fixas pagas: o mês anterior inteiro e o aluguel/streaming no mês atual
     const pague = (f, m) => t.push({
-      id: uid(), tipo: 'despesa', valor: f.valor, data: iso(m, f.dia_vencimento), categoria_id: f.categoria_id, conta_id: pix, descricao: f.nome,
+      id: uid(), tipo: f.tipo === 'receita' ? 'receita' : 'despesa', valor: f.valor, data: iso(m, f.dia_vencimento), categoria_id: f.categoria_id, conta_id: pix, descricao: f.nome,
       parcela_atual: null, total_parcelas: null, grupo_parcela_id: null, conta_fixa_id: f.id, competencia: m, hash_importacao: null,
     });
     fixas.forEach((f) => pague(f, prev));
-    [fixas[0], fixas[3]].forEach((f) => { if (f.dia_vencimento <= dHoje) pague(f, mk); });
+    [fixas[0], fixas[3], fixas[4]].forEach((f) => { if (f.dia_vencimento <= dHoje) pague(f, mk); });
     // compra parcelada no cartão: 3x a partir do mês anterior
     t.push(...C.buildInstallments({ tipo: 'despesa', data: iso(prev, 20), categoria_id: cat('Outros'), conta_id: cc.id, descricao: 'Notebook' }, 360000, 3, uid));
     base.transacoes = t;
@@ -383,7 +408,7 @@
     settings, setSettings, conta, categoria,
     addTransacao, updateTransacao, updateParcelas, removeTransacao, importTransacoes,
     upsertConta, removeConta, setInvoicePaid, upsertCategoria, removeCategoria,
-    upsertFixa, removeFixa, payFixa, unpayFixa,
+    upsertFixa, removeFixa, payFixa, unpayFixa, runRecurring,
     snapshot, restore, reset, validateBackup, loadDemo,
     useAccount, useLocal, mode, peekLocal, cloudMeta, setCloudMeta,
   };

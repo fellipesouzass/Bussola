@@ -202,7 +202,10 @@
     const orc = C.budgetTotal(d.categorias);
     const p = C.projection(d.transacoes, d.contas_fixas, mk, hoje, orc);
     const rows = C.budgetRows(d.categorias, d.transacoes, mk).filter((r) => r.limite > 0 || r.gasto > 0).sort((a, b) => (b.limite > 0) - (a.limite > 0) || b.ratio - a.ratio || b.gasto - a.gasto);
-    const occ = C.fixedOccurrences(d.contas_fixas, mk, d.transacoes, hoje);
+    const occAll = C.fixedOccurrences(d.contas_fixas, mk, d.transacoes, hoje);
+    const occ = occAll.filter((o) => !C.isIncome(o.cf)); // contas fixas (despesas)
+    const incPend = occAll.filter((o) => C.isIncome(o.cf) && o.status !== 'paga'); // receitas recorrentes a receber
+    const aReceber = incPend.reduce((s, o) => s + o.cf.valor, 0);
     const pend = occ.filter((o) => o.status !== 'paga');
     const vencidas = occ.filter((o) => o.status === 'vencida');
     const recent = C.inMonth(d.transacoes, mk).sort(byDateDesc).slice(0, 6);
@@ -246,7 +249,7 @@
       '<div class="stack">' +
         '<section class="card hero st"><div class="eyebrow">Saldo de ' + C.monthLabel(mk).toLowerCase() + '</div>' +
           '<div class="hero-value money ' + (sum.saldo < 0 ? 'neg' : '') + '"><span class="count" data-v="' + sum.saldo + '">' + R(sum.saldo) + '</span></div>' +
-          '<div class="hero-row"><span class="chip-stat"><i></i>Receitas ' + R(sum.receitas) + '</span><span class="chip-stat out"><i></i>Despesas ' + R(sum.despesas) + '</span></div></section>' +
+          '<div class="hero-row"><span class="chip-stat"><i></i>Receitas ' + R(sum.receitas) + '</span><span class="chip-stat out"><i></i>Despesas ' + R(sum.despesas) + '</span>' + (aReceber > 0 && mk >= cur ? '<span class="chip-stat wait"><i></i>A receber ' + R(aReceber) + '</span>' : '') + '</div></section>' +
         '<section class="card st"><div class="card-head"><h2>Projeção de fechamento</h2></div><div class="proj">' + gauge +
           '<div><div class="proj-title">' + titulo + '</div><div class="proj-lines">' + lines + '</div>' + verdict + '</div></div></section>' +
         '<section class="card st"><div class="card-head"><h2>Orçamento por categoria</h2><button class="link" data-act="goto-cats">Editar limites</button></div><div class="list">' + budget + '</div></section>' +
@@ -257,6 +260,7 @@
           return '<div class="row" style="--c:#8e6bd8;cursor:default"><span class="row-ico">' + ico('credito') + '</span><div class="row-main"><div class="row-title">' + esc(c.nome) + ' · ' + (i.status === 'fechada' ? 'fechada' : 'aberta') + '</div><div class="row-meta">vence ' + C.fmtShort(i.due) + (dias === 0 ? ' (hoje)' : ' (em ' + dias + (dias === 1 ? ' dia' : ' dias') + ')') + '</div></div><span class="row-amt money">' + R(i.total) + '</span>' +
             (i.status === 'fechada' ? '<button class="btn btn-sm" data-act="inv-pay" data-conta="' + esc(c.id) + '" data-end="' + i.end + '">Já paguei</button>' : '') + '</div>';
         }).join('') + '</div></section>' : '') +
+        (incPend.length ? '<section class="card st"><div class="card-head"><h2>Receitas a receber</h2><button class="link" data-act="goto-fixas">Ver todas</button></div><div class="list">' + incPend.slice(0, 3).map((o) => fixRow(o, mk, true)).join('') + '</div></section>' : '') +
         '<section class="card st"><div class="card-head"><h2>Contas fixas</h2><button class="link" data-act="goto-fixas">Ver todas</button></div><div class="list">' + fixasCard + '</div></section>' +
         '<section class="card st"><div class="card-head"><h2>Últimos lançamentos</h2><button class="link" data-act="goto-tx">Ver todos</button></div><div class="list">' +
           (recent.length ? recent.map(txRow).join('') : '<div class="empty small">' + ico('list') + '<b>Sem lançamentos</b>Toque no botão + para começar.</div>') + '</div></section>' +
@@ -326,7 +330,7 @@
 
   /* -------------------------------------------------------------------- Contas */
   function pageContas() {
-    return segHTML('st', [['carteiras', 'Carteiras e cartões'], ['fixas', 'Contas fixas']], ui.contasTab, 'contasTab') + '<div class="pane st" id="pane" style="margin-top:18px"></div>';
+    return segHTML('st', [['carteiras', 'Carteiras e cartões'], ['fixas', 'Fixas e recorrentes']], ui.contasTab, 'contasTab') + '<div class="pane st" id="pane" style="margin-top:18px"></div>';
   }
   function paneContas() {
     return ui.contasTab === 'fixas' ? paneFixas() : paneCarteiras();
@@ -361,25 +365,33 @@
   }
   function fixRow(o, mk, compact) {
     const c = cat(o.cf.categoria_id);
-    const quando = o.status === 'paga' ? 'paga em ' + C.fmtShort(o.tx.data) : o.status === 'vencida' ? 'venceu há ' + o.dias + (o.dias === 1 ? ' dia' : ' dias') : o.dias === 0 ? 'vence hoje' : 'vence em ' + o.dias + (o.dias === 1 ? ' dia' : ' dias');
-    const label = { paga: 'Paga', vencida: 'Vencida', a_vencer: 'A vencer' }[o.status];
+    const inc = C.isIncome(o.cf), pl = (n) => n + (n === 1 ? ' dia' : ' dias');
+    const quando = inc
+      ? (o.status === 'paga' ? 'recebida em ' + C.fmtShort(o.tx.data) : o.status === 'vencida' ? 'prevista há ' + pl(o.dias) : o.dias === 0 ? 'prevista para hoje' : 'prevista em ' + pl(o.dias))
+      : (o.status === 'paga' ? 'paga em ' + C.fmtShort(o.tx.data) : o.status === 'vencida' ? 'venceu há ' + pl(o.dias) : o.dias === 0 ? 'vence hoje' : 'vence em ' + pl(o.dias));
+    const label = (inc ? { paga: 'Recebida', vencida: 'Atrasada', a_vencer: 'A receber' } : { paga: 'Paga', vencida: 'Vencida', a_vencer: 'A vencer' })[o.status];
     const btn = o.status === 'paga'
       ? '<button class="btn btn-sm" data-act="fix-undo" data-id="' + esc(o.cf.id) + '" data-mk="' + mk + '">Desfazer</button>'
-      : '<button class="btn btn-sm btn-primary" data-act="fix-pay" data-id="' + esc(o.cf.id) + '" data-mk="' + mk + '">' + ico('check') + 'Pagar</button>';
+      : '<button class="btn btn-sm btn-primary" data-act="fix-pay" data-id="' + esc(o.cf.id) + '" data-mk="' + mk + '">' + ico('check') + (inc ? 'Recebi' : 'Pagar') + '</button>';
     return '<div class="row" role="button" tabindex="0" data-act="fix-edit" data-id="' + esc(o.cf.id) + '" style="--c:' + safeColor(c.cor) + '"><span class="row-ico"><b>' + esc(o.cf.dia_vencimento) + '</b></span>' +
-      '<div class="row-main"><div class="row-title">' + esc(o.cf.nome) + '</div><div class="row-meta">' + esc(c.nome) + ' · ' + esc(quando) + ' (' + C.fmtShort(o.due) + ')</div></div>' +
-      (compact ? '' : '<span class="badge ' + o.status + '">' + label + '</span>') + '<span class="row-amt money">' + R(o.cf.valor) + '</span>' + btn + '</div>';
+      '<div class="row-main"><div class="row-title">' + esc(o.cf.nome) + (inc && o.cf.auto ? ' <span class="muted small">· automática</span>' : '') + '</div><div class="row-meta">' + esc(c.nome) + ' · ' + esc(quando) + ' (' + C.fmtShort(o.due) + ')</div></div>' +
+      (compact ? '' : '<span class="badge ' + o.status + '">' + label + '</span>') + '<span class="row-amt money ' + (inc ? 'in' : '') + '">' + (inc ? '+' : '') + R(o.cf.valor) + '</span>' + btn + '</div>';
   }
   function paneFixas() {
     const d = D(), mk = ui.month, hoje = today();
-    const occ = C.fixedOccurrences(d.contas_fixas, mk, d.transacoes, hoje);
+    const todas = C.fixedOccurrences(d.contas_fixas, mk, d.transacoes, hoje);
+    const occ = todas.filter((o) => !C.isIncome(o.cf)), incs = todas.filter((o) => C.isIncome(o.cf));
     const total = occ.reduce((s, o) => s + o.cf.valor, 0), pago = occ.filter((o) => o.status === 'paga').reduce((s, o) => s + o.cf.valor, 0);
+    const incTotal = incs.reduce((s, o) => s + o.cf.valor, 0), incRec = incs.filter((o) => o.status === 'paga').reduce((s, o) => s + o.cf.valor, 0);
     const pausadas = d.contas_fixas.filter((f) => f.ativa === false);
-    return '<div class="grid g3" style="margin-bottom:16px">' +
+    const recorrentes = '<section class="card" style="margin-bottom:16px"><div class="card-head"><h2>Receitas recorrentes</h2><button class="btn btn-sm btn-primary" data-act="fix-new" data-tipo="receita">' + ico('plus') + 'Nova receita recorrente</button></div>' +
+      (incs.length ? '<p class="hint" style="margin-bottom:8px">Previsto ' + R(incTotal) + ' · recebido ' + R(incRec) + ' · a receber ' + R(incTotal - incRec) + '</p><div class="list">' + incs.map((o) => fixRow(o, mk)).join('') + '</div>'
+        : '<div class="empty">' + ico('wallet') + '<b>Nenhuma receita recorrente</b>Cadastre seu salário (ou outra renda mensal) e ele é lançado sozinho no dia do recebimento.</div>') + '</section>';
+    return recorrentes + '<div class="grid g3" style="margin-bottom:16px">' +
       [['Previsto no mês', total, ''], ['Já pago', pago, 'pos'], ['Falta pagar', total - pago, total - pago > 0 ? 'neg' : '']].map(([l, v, k]) => '<div class="card stat"><div class="eyebrow">' + l + '</div><div class="stat-value money ' + k + '">' + R(v) + '</div></div>').join('') + '</div>' +
       '<section class="card"><div class="card-head"><h2>Vencimentos de ' + C.monthLabel(mk).toLowerCase() + '</h2><button class="btn btn-sm btn-primary" data-act="fix-new">' + ico('plus') + 'Nova conta fixa</button></div><div class="list">' +
       (occ.length ? occ.map((o) => fixRow(o, mk)).join('') : '<div class="empty">' + ico('wallet') + '<b>Nenhuma conta fixa neste mês</b>Cadastre aluguel, internet, assinaturas… e acompanhe o status de cada uma.</div>') + '</div></section>' +
-      (pausadas.length ? '<section class="card" style="margin-top:16px"><div class="card-head"><h2>Pausadas</h2></div><div class="list">' + pausadas.map((f) => '<div class="row" role="button" tabindex="0" data-act="fix-edit" data-id="' + esc(f.id) + '" style="--c:#7a8599"><span class="row-ico"><b>' + esc(f.dia_vencimento) + '</b></span><div class="row-main"><div class="row-title">' + esc(f.nome) + '</div><div class="row-meta">Pausada · ' + esc(cat(f.categoria_id).nome) + '</div></div><span class="row-amt money">' + R(f.valor) + '</span></div>').join('') + '</div></section>' : '');
+      (pausadas.length ? '<section class="card" style="margin-top:16px"><div class="card-head"><h2>Pausadas</h2></div><div class="list">' + pausadas.map((f) => '<div class="row" role="button" tabindex="0" data-act="fix-edit" data-id="' + esc(f.id) + '" style="--c:#7a8599"><span class="row-ico"><b>' + esc(f.dia_vencimento) + '</b></span><div class="row-main"><div class="row-title">' + esc(f.nome) + '</div><div class="row-meta">Pausada · ' + (C.isIncome(f) ? 'receita · ' : '') + esc(cat(f.categoria_id).nome) + '</div></div><span class="row-amt money">' + R(f.valor) + '</span></div>').join('') + '</div></section>' : '');
   }
 
   /* ------------------------------------------------------------------- Análise */
@@ -896,19 +908,45 @@
     try { S.removeCategoria(id, v); undoable('Categoria excluída; itens movidos.', snap); } catch (e) { fail(e); }
   }
 
-  function openFixaForm(id) {
+  /** Conta fixa (despesa) ou receita recorrente (ex.: salário). `tipoNovo` define o tipo ao cadastrar. */
+  function openFixaForm(id, tipoNovo) {
     const d = D(), fx = id ? d.contas_fixas.find((x) => x.id === id) : null;
-    const f = { cat: fx ? fx.categoria_id : (d.categorias.find((c) => c.kind !== 'receita') || {}).id, ativa: fx ? fx.ativa !== false : true };
-    const body = '<form class="form" id="fxForm" autocomplete="off"><div class="field"><label for="xNome">Nome</label><input class="input" id="xNome" maxlength="40" placeholder="Ex.: Aluguel, Internet" required autofocus></div>' +
-      '<div class="grid g2" style="gap:12px"><div class="field"><label for="xVal">Valor (R$)</label><input class="input" id="xVal" inputmode="numeric" placeholder="0,00"></div><div class="field"><label for="xDia">Dia do vencimento</label><input class="input" id="xDia" type="number" min="1" max="31" placeholder="10"></div></div>' +
-      '<div class="field"><span class="label">Categoria</span><div class="chips" id="xCats">' + d.categorias.filter((c) => c.kind !== 'receita').map((c) => chipCat(c, c.id === f.cat)).join('') + '</div></div>' +
-      (fx ? '<div class="opt" style="padding:0"><div><b>Ativa</b><div class="hint">Pausada, ela deixa de aparecer nos próximos meses (o histórico fica).</div></div>' + switchHTML('xAtiva', f.ativa, 'Conta fixa ativa') + '</div>' : '') +
+    const catsDe = (tipo) => d.categorias.filter((c) => (c.kind || 'despesa') === tipo);
+    const recebem = d.contas.filter((c) => c.tipo !== 'credito'); // receita não cai em cartão de crédito
+    const tipo0 = fx ? (C.isIncome(fx) ? 'receita' : 'despesa') : (tipoNovo === 'receita' ? 'receita' : 'despesa');
+    const f = {
+      tipo: tipo0, ativa: fx ? fx.ativa !== false : true, auto: fx ? !!fx.auto : true,
+      cat: fx ? fx.categoria_id : (catsDe(tipo0)[0] || {}).id,
+      conta: fx && fx.conta_id && recebem.find((c) => c.id === fx.conta_id) ? fx.conta_id : (S.conta(S.settings().lastConta) && S.conta(S.settings().lastConta).tipo !== 'credito' ? S.settings().lastConta : (recebem[0] || {}).id),
+    };
+    const rec = f.tipo === 'receita';
+    const body = '<form class="form" id="fxForm" autocomplete="off">' +
+      (fx ? '' : segHTML('full ' + f.tipo, [['despesa', 'Conta fixa'], ['receita', 'Receita recorrente']], f.tipo)) +
+      '<div class="field"><label for="xNome">Nome</label><input class="input" id="xNome" maxlength="40" placeholder="' + (rec ? 'Ex.: Salário' : 'Ex.: Aluguel, Internet') + '" required autofocus></div>' +
+      '<div class="grid g2" style="gap:12px"><div class="field"><label for="xVal">Valor (R$)</label><input class="input" id="xVal" inputmode="numeric" placeholder="0,00"></div><div class="field"><label for="xDia" id="xDiaL">' + (rec ? 'Dia do recebimento' : 'Dia do vencimento') + '</label><input class="input" id="xDia" type="number" min="1" max="31" placeholder="5"></div></div>' +
+      '<div class="field"><span class="label">Categoria</span><div class="chips" id="xCats">' + catsDe(f.tipo).map((c) => chipCat(c, c.id === f.cat)).join('') + '</div></div>' +
+      '<div class="collapse' + (rec ? ' open' : '') + '" id="xRec"><div>' +
+        '<div class="field" style="padding-top:2px"><span class="label">Conta que recebe</span><div class="chips" id="xContas">' + recebem.map((a) => '<button type="button" class="chip" data-id="' + esc(a.id) + '" style="--c:' + (ACC[a.tipo] || ACC.pix).c + '" aria-pressed="' + (a.id === f.conta) + '">' + ico(a.tipo in I ? a.tipo : 'pix') + esc(a.nome) + '</button>').join('') + '</div></div>' +
+        '<div class="opt" style="padding:12px 0 0"><div><b>Lançar sozinha no dia</b><div class="hint">Ao abrir o app a partir desse dia, o recebimento do mês entra nos lançamentos (uma vez por mês). Desligado, você marca “Recebi” manualmente.</div></div>' + switchHTML('xAuto', f.auto, 'Lançar sozinha no dia do recebimento') + '</div></div></div>' +
+      (fx ? '<div class="opt" style="padding:0"><div><b>Ativa</b><div class="hint">Pausada, ela deixa de aparecer nos próximos meses (o histórico fica).</div></div>' + switchHTML('xAtiva', f.ativa, 'Ativa') + '</div>' : '') +
       '<div class="btn-row">' + (fx ? '<button type="button" class="btn btn-danger" id="xDel">' + ico('trash') + 'Excluir</button>' : '') + '<button class="btn btn-primary" style="flex:1;padding:14px">' + (fx ? 'Salvar' : 'Cadastrar') + '</button></div></form>';
-    openDialog(sheet(fx ? 'Editar conta fixa' : 'Nova conta fixa', body), {
+    openDialog(sheet(fx ? (rec ? 'Editar receita recorrente' : 'Editar conta fixa') : (rec ? 'Nova receita recorrente' : 'Nova conta fixa'), body), {
       mount(root) {
         $('#xNome', root).value = fx ? fx.nome : ''; $('#xDia', root).value = fx ? fx.dia_vencimento : '';
         moneyField($('#xVal', root), fx ? fx.valor : 0);
-        bindChips($('#xCats', root), (cid) => { f.cat = cid; });
+        const catsBox = $('#xCats', root);
+        bindChips(catsBox, (cid) => { f.cat = cid; });
+        bindChips($('#xContas', root), (cid) => { f.conta = cid; });
+        const au = $('#xAuto', root); au.addEventListener('click', () => { f.auto = !f.auto; au.setAttribute('aria-checked', String(f.auto)); });
+        const tseg = $('.seg', root);
+        if (tseg) bindSeg(tseg, (v) => {
+          f.tipo = v; tseg.className = 'seg full ' + v;
+          f.cat = (catsDe(v)[0] || {}).id;
+          catsBox.innerHTML = catsDe(v).map((c) => chipCat(c, c.id === f.cat)).join('');
+          $('#xRec', root).classList.toggle('open', v === 'receita');
+          $('#xDiaL', root).textContent = v === 'receita' ? 'Dia do recebimento' : 'Dia do vencimento';
+          $('#xNome', root).placeholder = v === 'receita' ? 'Ex.: Salário' : 'Ex.: Aluguel, Internet';
+        });
         const sw = $('#xAtiva', root); if (sw) sw.addEventListener('click', () => { f.ativa = !f.ativa; sw.setAttribute('aria-checked', String(f.ativa)); });
         if (fx) $('#xDel', root).addEventListener('click', async () => {
           if (!(await confirmDlg('Excluir “' + fx.nome + '”?', 'Os lançamentos já pagos continuam no histórico.'))) return;
@@ -919,11 +957,15 @@
           const nome = $('#xNome', root).value.trim(), valor = centsOf($('#xVal', root)), dia = parseInt($('#xDia', root).value, 10);
           if (!nome || !valor) return toast('Informe o nome e o valor.', { kind: 'error' });
           if (!(dia >= 1 && dia <= 31)) return toast('O dia do vencimento deve estar entre 1 e 31.', { kind: 'error' });
-          const obj = { nome, valor, dia_vencimento: dia, categoria_id: f.cat, ativa: f.ativa };
+          if (!f.cat) return toast('Escolha uma categoria.', { kind: 'error' });
+          const inc = f.tipo === 'receita';
+          if (inc && !f.conta) return toast('Escolha a conta que recebe.', { kind: 'error' });
+          const obj = { nome, valor, dia_vencimento: dia, categoria_id: f.cat, ativa: f.ativa, tipo: inc ? 'receita' : 'despesa', auto: inc ? f.auto : false, conta_id: inc ? f.conta : null };
           if (fx) obj.id = fx.id;
           S.upsertFixa(obj);
           closeDialog();
-          toast(fx ? 'Conta fixa atualizada.' : 'Conta fixa cadastrada.');
+          toast(inc ? (fx ? 'Receita recorrente atualizada.' : 'Receita recorrente cadastrada.') : (fx ? 'Conta fixa atualizada.' : 'Conta fixa cadastrada.'));
+          if (inc && f.auto) runRecurring(true); // se o dia deste mês já passou, lança agora
         });
       },
     });
@@ -932,11 +974,18 @@
     const d = D(), cf = d.contas_fixas.find((f) => f.id === id);
     if (!cf) return;
     const pref = S.conta(S.settings().lastConta);
-    const alvo = (pref && pref.tipo !== 'credito' ? pref : d.contas.find((c) => c.tipo !== 'credito') || d.contas[0]);
+    const inc = C.isIncome(cf);
+    const alvo = inc && S.conta(cf.conta_id) ? S.conta(cf.conta_id) : (pref && pref.tipo !== 'credito' ? pref : d.contas.find((c) => c.tipo !== 'credito') || d.contas[0]);
     if (!alvo) return toast('Cadastre uma conta antes.', { kind: 'error' });
     const snap = S.snapshot();
     S.payFixa(id, mk, alvo.id, today());
-    undoable(cf.nome + ' paga (' + R(cf.valor) + ' · ' + alvo.nome + ').', snap);
+    undoable(inc ? cf.nome + ' recebida (' + R(cf.valor) + ' · ' + alvo.nome + ').' : cf.nome + ' paga (' + R(cf.valor) + ' · ' + alvo.nome + ').', snap);
+  }
+
+  /** Lança as receitas recorrentes automáticas cujo dia já chegou. `avisar`: mostra aviso mesmo com pouca coisa. */
+  function runRecurring() {
+    const n = S.runRecurring(today());
+    if (n) toast(n === 1 ? 'Receita recorrente lançada.' : n + ' receitas recorrentes lançadas.');
   }
 
   /* ================================================================== AÇÕES ======== */
@@ -971,10 +1020,10 @@
     'acc-edit': (el) => openAccountForm(el.dataset.id),
     'cat-new': () => openCategoryForm(),
     'cat-edit': (el) => openCategoryForm(el.dataset.id),
-    'fix-new': () => openFixaForm(),
+    'fix-new': (el) => openFixaForm(null, el.dataset.tipo),
     'fix-edit': (el) => openFixaForm(el.dataset.id),
     'fix-pay': (el) => payFixa(el.dataset.id, el.dataset.mk),
-    'fix-undo': (el) => { const snap = S.snapshot(); S.unpayFixa(el.dataset.id, el.dataset.mk); undoable('Pagamento desfeito.', snap); },
+    'fix-undo': (el) => { const snap = S.snapshot(); S.unpayFixa(el.dataset.id, el.dataset.mk); undoable('Lançamento desfeito.', snap); },
     acc: () => { if (Cloud.user()) { ui.ajTab = 'dados'; goPage('ajustes'); } else Cloud.signIn(); },
     'cloud-signin': () => Cloud.signIn(),
     'cloud-sync': () => { toast('Sincronizando…'); Cloud.syncNow(); },
@@ -1102,7 +1151,7 @@
     const s = S.settings(), hoje = today();
     if (!s.notify || !('Notification' in window) || Notification.permission !== 'granted' || s.lastNotifyDay === hoje) return;
     const d = D();
-    const itens = C.fixedOccurrences(d.contas_fixas, C.monthKey(hoje), d.transacoes, hoje).filter((o) => o.status === 'vencida' || (o.status === 'a_vencer' && o.dias <= 2));
+    const itens = C.fixedOccurrences(d.contas_fixas, C.monthKey(hoje), d.transacoes, hoje).filter((o) => !C.isIncome(o.cf) && (o.status === 'vencida' || (o.status === 'a_vencer' && o.dias <= 2)));
     const cartoes = d.contas.filter((c) => c.tipo === 'credito').flatMap((c) => C.invoiceList(c, d.transacoes, hoje).filter((i) => i.status === 'fechada' && i.total > 0 && C.daysBetween(hoje, i.due) <= 2).map((i) => ({ c, i })));
     if (!itens.length && !cartoes.length) return;
     S.setSettings({ lastNotifyDay: hoje });
@@ -1120,11 +1169,12 @@
       updateAccBtn();
       if (evt === 'error') toast(msg, { kind: 'error', ms: 8000 });
       if (evt === 'user' && Cloud.user()) toast('Conectado como ' + (Cloud.user().email || 'sua conta Google') + '. Você está vendo os dados da conta.');
-      if (evt === 'pulled') toast('Dados carregados da sua conta.');
+      if (evt === 'pulled') { toast('Dados carregados da sua conta.'); runRecurring(); }
       if (ui.page === 'ajustes' && ui.ajTab === 'dados' && !dlg.open) renderPane(false);
     });
     Cloud.init();
     updateAccBtn();
+    runRecurring(); // salário e outras receitas automáticas do mês
     setMonthLabel(1);
     route();
     if (S.error()) toast('Não consegui salvar os dados neste navegador. Exporte um backup.', { kind: 'error', ms: 9000 });
