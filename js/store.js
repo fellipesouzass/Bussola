@@ -137,6 +137,19 @@
     });
   }
 
+  /** Compra parcelada: define o valor TOTAL e reparte entre as parcelas do grupo (centavos que sobram vão para as primeiras).
+   *  Os demais campos de `patch` (categoria, conta, descrição, tipo) valem para todas; a data não é alterada. */
+  function updateParcelas(id, patch, total) {
+    return commit((d) => {
+      const t = byId(d.transacoes, id);
+      if (!t || !t.grupo_parcela_id || !(total > 0)) return;
+      const grupo = d.transacoes.filter((x) => x.grupo_parcela_id === t.grupo_parcela_id).sort((a, b) => a.parcela_atual - b.parcela_atual);
+      const valores = C.splitInstallments(total, grupo.length);
+      const { data, valor, ...resto } = patch;
+      grupo.forEach((x, i) => Object.assign(x, resto, { valor: valores[i] }));
+    });
+  }
+
   function removeTransacao(id, scope) {
     return commit((d) => {
       const t = byId(d.transacoes, id);
@@ -364,7 +377,7 @@
     subscribe: (fn) => { subs.add(fn); return () => subs.delete(fn); },
     error: () => lastError,
     settings, setSettings, conta, categoria,
-    addTransacao, updateTransacao, removeTransacao, importTransacoes,
+    addTransacao, updateTransacao, updateParcelas, removeTransacao, importTransacoes,
     upsertConta, removeConta, setInvoicePaid, upsertCategoria, removeCategoria,
     upsertFixa, removeFixa, payFixa, unpayFixa,
     snapshot, restore, reset, validateBackup, loadDemo,

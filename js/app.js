@@ -680,13 +680,17 @@
     const catsOf = (tipo) => d.categorias.filter((c) => (c.kind || 'despesa') === tipo);
     const pickCat = () => { const l = catsOf(f.tipo); if (!l.find((c) => c.id === f.cat)) { const last = S.categoria(s.lastCategoria); f.cat = (last && last.kind === f.tipo ? last : l[0] || {}).id || ''; } };
     pickCat();
+    // compra parcelada: todas as parcelas do grupo (para mostrar/editar o total)
+    const grupo = edit && edit.grupo_parcela_id ? d.transacoes.filter((t) => t.grupo_parcela_id === edit.grupo_parcela_id).sort((a, b) => a.parcela_atual - b.parcela_atual) : null;
+    const grupoTotal = grupo ? grupo.reduce((s, t) => s + t.valor, 0) : 0;
+    let totalEditado = false;
     const body = '<form class="form" id="txForm" autocomplete="off" novalidate>' +
       segHTML('full ' + f.tipo, [['despesa', 'Despesa'], ['receita', 'Receita']], f.tipo) +
-      '<div><div class="amount-cur">R$</div><input class="amount ' + f.tipo + '" id="fValor" inputmode="numeric" placeholder="0,00" aria-label="Valor" autofocus></div>' +
+      '<div><div class="amount-cur">' + (grupo ? 'VALOR DESTA PARCELA (' + edit.parcela_atual + '/' + edit.total_parcelas + ') · R$' : 'R$') + '</div><input class="amount ' + f.tipo + '" id="fValor" inputmode="numeric" placeholder="0,00" aria-label="Valor" autofocus></div>' +
       '<div class="field"><span class="label">Categoria</span><div class="chips" id="fCats"></div></div>' +
       '<div class="field"><span class="label">Conta</span><div class="chips" id="fContas">' + d.contas.map((a) => '<button type="button" class="chip" data-id="' + esc(a.id) + '" style="--c:' + (ACC[a.tipo] || ACC.pix).c + '" aria-pressed="' + (a.id === f.conta) + '">' + ico(a.tipo in I ? a.tipo : 'pix') + esc(a.nome) + '</button>').join('') + '</div></div>' +
       '<div class="collapse" id="fParc"><div><div class="field" style="padding-top:2px"><span class="label">Parcelas</span><div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap"><div class="stepper"><button type="button" data-st="-1" aria-label="Menos parcelas">−</button><b id="fN">1×</b><button type="button" data-st="1" aria-label="Mais parcelas">+</button></div><span class="hint" id="fParcHint"></span></div></div></div></div>' +
-      (edit && edit.total_parcelas ? '<div class="alert info">' + ico('info') + '<span>Parcela ' + edit.parcela_atual + ' de ' + edit.total_parcelas + ' — ao salvar você escolhe se vale só para ela ou para o grupo.</span></div>' : '') +
+      (grupo ? '<div class="card" style="padding:14px;background:var(--surface-2);box-shadow:none"><div class="field"><label for="fTotal">Valor total da compra (' + grupo.length + (grupo.length === 1 ? ' parcela' : ' parcelas') + ')</label><input class="input" id="fTotal" inputmode="numeric" placeholder="0,00"></div><p class="hint" id="fTotalHint" style="margin-top:8px"></p></div>' : '') +
       '<div class="grid g2" style="gap:12px"><div class="field"><label for="fData">Data</label><input type="date" class="input" id="fData" required></div><div class="field"><label for="fDesc">Descrição (opcional)</label><input class="input" id="fDesc" maxlength="80" placeholder="Ex.: mercado"></div></div>' +
       '<div class="btn-row">' + (edit ? '<button type="button" class="btn btn-danger" id="fDel">' + ico('trash') + 'Excluir</button>' : '') + '<button class="btn btn-primary" style="flex:1;padding:14px" type="submit">' + (edit ? 'Salvar alterações' : 'Lançar') + '</button></div></form>';
 
@@ -702,7 +706,14 @@
           $('#fParcHint', root).textContent = f.parcelas > 1 && f.cents ? f.parcelas + '× de ' + R(C.splitInstallments(f.cents, f.parcelas)[0]) + (f.cents % f.parcelas ? ' (centavos na 1ª)' : '') : 'Digite o valor total da compra';
         };
         const drawCats = () => { pickCat(); catsBox.innerHTML = catsOf(f.tipo).map((c) => chipCat(c, c.id === f.cat)).join(''); };
-        moneyField(val, f.cents, (c) => { f.cents = c; refresh(); });
+        if (grupo) {
+          const tot = $('#fTotal', root), hint = $('#fTotalHint', root);
+          const idx = grupo.findIndex((t) => t.id === edit.id);
+          const dica = () => { const n = grupo.length, c = Math.round(centsOf(tot)); hint.textContent = c ? n + '× de ' + R(C.splitInstallments(c, n)[0]) + (c % n ? ' (centavos nas primeiras parcelas)' : '') + ' · alterar o total reajusta todas as parcelas' : ''; };
+          moneyField(tot, grupoTotal, (c) => { totalEditado = true; f.cents = C.splitInstallments(c, grupo.length)[idx]; val.dataset.cents = f.cents; val.value = f.cents ? R(f.cents, { symbol: false }) : ''; dica(); });
+          moneyField(val, f.cents, (c) => { f.cents = c; totalEditado = false; const t = c * grupo.length; tot.dataset.cents = t; tot.value = t ? R(t, { symbol: false }) : ''; dica(); refresh(); });
+          dica();
+        } else moneyField(val, f.cents, (c) => { f.cents = c; refresh(); });
         $('#fData', root).value = f.data; $('#fDesc', root).value = f.desc;
         drawCats(); refresh();
         bindSeg(seg, (v) => { f.tipo = v; seg.className = 'seg full ' + v; val.className = 'amount ' + v; drawCats(); refresh(); });
@@ -721,8 +732,13 @@
           try {
             if (edit) {
               let scope = 'one';
-              if (edit.grupo_parcela_id) { scope = await scopeDlg(edit, 'alterar'); if (!scope) return; }
-              S.updateTransacao(edit.id, { tipo: f.tipo, valor: f.cents, data: f.data, categoria_id: f.cat, conta_id: f.conta, descricao: f.desc }, scope);
+              const patch = { tipo: f.tipo, valor: f.cents, data: f.data, categoria_id: f.cat, conta_id: f.conta, descricao: f.desc };
+              if (grupo && totalEditado) { // o total vale para a compra inteira: reparte entre as parcelas
+                S.updateParcelas(edit.id, patch, centsOf($('#fTotal', root)));
+              } else {
+                if (edit.grupo_parcela_id) { scope = await scopeDlg(edit, 'alterar'); if (!scope) return; }
+                S.updateTransacao(edit.id, patch, scope);
+              }
               closeDialog();
               undoable('Lançamento atualizado.', snap);
             } else {
