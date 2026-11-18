@@ -58,3 +58,15 @@ js/app.js          telas e formulários
 tests/core.test.js
 scripts/           serve.mjs, bump.mjs
 ```
+
+## Login com Google e sincronização (Firebase)
+
+Em **Ajustes › Dados e aparência › Conta Google** (ou no botão *Entrar* do topo) o app entra com Google e guarda uma cópia dos dados em `usuarios/{uid}` no Firestore do projeto `bussola-financas`. Offline continua funcionando; as alterações sobem sozinhas e chegam aos outros aparelhos em tempo real. Se o navegador e a conta tiverem dados diferentes no primeiro login, o app pergunta qual manter.
+
+Requisitos no console Firebase: Authentication › Google ativado, domínio `fellipesouzass.github.io` autorizado e estas regras no Firestore:
+
+```
+match /usuarios/{uid} { allow read, write: if request.auth != null && request.auth.uid == uid; }
+```
+
+Código em `js/cloud.js` (testado em `tests/cloud.test.js` com um Firebase falso).

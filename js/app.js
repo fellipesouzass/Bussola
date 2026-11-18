@@ -1,7 +1,7 @@
 /* Bússola — interface. Navegação, telas, formulários e animações. */
 (function () {
   'use strict';
-  const C = window.BussolaCore, S = window.BussolaStore, U = window.BussolaUpdater;
+  const C = window.BussolaCore, S = window.BussolaStore, U = window.BussolaUpdater, Cloud = window.BussolaCloud;
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -483,13 +483,42 @@
   /* ---- Dados e aparência */
   function paneDados() {
     const s = S.settings();
-    return '<section class="card"><div class="card-head"><h2>Aparência e avisos</h2></div>' +
+    return accountCard() + '<section class="card" style="margin-top:16px"><div class="card-head"><h2>Aparência e avisos</h2></div>' +
       '<div class="opt"><div><b>Tema</b><div class="hint">Automático segue o seu sistema.</div></div>' + segHTML('', [['auto', 'Auto'], ['light', 'Claro'], ['dark', 'Escuro']], s.theme, 'theme') + '</div>' +
       '<div class="opt"><div><b>Lembrete de vencimento</b><div class="hint">Notifica contas fixas vencidas ou que vencem em até 2 dias, uma vez por dia, ao abrir o app (se o navegador permitir).</div></div>' + switchHTML('optNotify', s.notify, 'Lembrete de vencimento') + '</div></section>' +
       '<section class="card" style="margin-top:16px"><div class="card-head"><h2>Seus dados</h2></div><p class="hint" style="margin-bottom:14px">Tudo fica guardado só neste navegador — sem servidor, sem anúncios, sem venda de dados. Faça backup de vez em quando.</p>' +
       '<div class="btn-row"><button class="btn" data-act="export-all">' + ico('download') + 'Exportar tudo (CSV)</button><button class="btn" data-act="backup">' + ico('download') + 'Backup (JSON)</button><button class="btn" data-act="restore">' + ico('upload') + 'Restaurar backup</button><input type="file" id="restoreFile" accept="application/json,.json" hidden></div>' +
       '<div class="opt" style="margin-top:8px"><div><b>Carregar dados de exemplo</b><div class="hint">Substitui os dados atuais por um mês de demonstração.</div></div><button class="btn btn-sm" data-act="demo">Carregar</button></div>' +
       '<div class="opt"><div><b>Apagar todos os dados</b><div class="hint">Remove lançamentos, contas e categorias deste navegador.</div></div><button class="btn btn-sm btn-danger" data-act="wipe">Apagar tudo</button></div></section>';
+  }
+
+  /* ---- Conta Google */
+  const GOOGLE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1A11 11 0 0 0 2.18 7.06l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z"/></svg>';
+  const photo = (u) => (u.photoURL && /^https:\/\//.test(u.photoURL) ? '<img src="' + esc(u.photoURL) + '" alt="" referrerpolicy="no-referrer">' : '<span class="row-ico" style="--c:#5b5b69;width:34px;height:34px"><b>' + esc((u.displayName || u.email || '?').charAt(0).toUpperCase()) + '</b></span>');
+  const SYNC_TXT = { syncing: 'Sincronizando…', synced: 'Sincronizado', offline: 'Sem conexão — sincroniza ao voltar', error: 'Erro ao sincronizar', idle: 'Conectando…' };
+  function updateAccBtn() {
+    const b = $('#accBtn'), u = Cloud.user();
+    if (!Cloud.available()) { b.hidden = true; return; }
+    b.hidden = false;
+    if (u) { b.className = 'acc-btn in'; b.innerHTML = photo(u) + '<i class="sync ' + Cloud.status() + '"></i>'; b.title = (u.email || '') + ' · ' + (SYNC_TXT[Cloud.status()] || ''); }
+    else { b.className = 'acc-btn'; b.innerHTML = GOOGLE + '<span>Entrar</span>'; b.title = 'Entrar com Google para sincronizar'; }
+    $('#sideFoot').innerHTML = '<b>v' + esc(U.current) + '</b><br>' + (u ? 'Sincronizado com ' + esc(u.email || 'sua conta Google') + '.' : 'Dados guardados só neste navegador.');
+  }
+  function accountCard() {
+    if (!Cloud.available()) return '<section class="card"><div class="card-head"><h2>Conta Google</h2></div><div class="alert info">' + ico('info') + '<span>Não consegui carregar o Firebase (sem internet?). O app segue funcionando só neste navegador.</span></div></section>';
+    const u = Cloud.user();
+    if (!u) return '<section class="card"><div class="card-head"><h2>Conta Google</h2></div><p class="hint" style="margin-bottom:14px">Entre com sua conta Google para ver a sua organização financeira em qualquer aparelho. Os dados deste navegador sobem para a sua conta, que só você acessa.</p>' +
+      (Cloud.error() ? '<div class="alert over" style="margin-bottom:14px">' + ico('alert') + '<span>' + esc(Cloud.error()) + '</span></div>' : '') +
+      '<button class="btn btn-primary" data-act="cloud-signin">' + GOOGLE + 'Entrar com Google</button></section>';
+    const st = Cloud.status(), last = Cloud.lastSync();
+    return '<section class="card"><div class="card-head"><h2>Conta Google</h2></div><div class="who">' + photo(u) + '<div><b>' + esc(u.displayName || 'Conta Google') + '</b><span>' + esc(u.email || '') + '</span></div></div>' +
+      '<div class="alert ' + (st === 'error' ? 'over' : st === 'synced' ? 'ok' : 'info') + '">' + ico(st === 'error' ? 'alert' : st === 'synced' ? 'check' : 'refresh') + '<span>' + esc(st === 'error' && Cloud.error() ? Cloud.error() : (SYNC_TXT[st] || '') + (st === 'synced' && last ? ' às ' + new Date(last).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '')) + '</span></div>' +
+      '<p class="hint" style="margin:12px 0">As alterações sobem sozinhas e aparecem nos seus outros aparelhos em segundos.</p>' +
+      '<div class="btn-row"><button class="btn" data-act="cloud-sync">' + ico('refresh') + 'Sincronizar agora</button><button class="btn" data-act="cloud-signout">Sair</button><button class="btn btn-danger" data-act="cloud-wipe">Sair e apagar dados daqui</button></div></section>';
+  }
+  function conflictDlg(info) {
+    const quando = new Date(info.remoteAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+    return openDialog(sheet('Dados diferentes encontrados', '<p class="muted" style="margin-bottom:16px">Este navegador e a sua conta Google têm dados diferentes. Qual você quer manter? O outro será substituído.</p><div class="choice"><button class="btn" data-close="remote" autofocus>Usar os dados da conta<span class="muted small" style="margin-left:auto">salvos em ' + esc(quando) + '</span></button><button class="btn" data-close="local">Manter os dados deste navegador<span class="muted small" style="margin-left:auto">substitui a conta</span></button></div><p class="hint" style="margin-top:12px">Dica: faça um backup em Ajustes › Dados antes, se tiver dúvida.</p>'));
   }
 
   /* ---- Atualizações via GitHub */
@@ -871,6 +900,14 @@
     'fix-edit': (el) => openFixaForm(el.dataset.id),
     'fix-pay': (el) => payFixa(el.dataset.id, el.dataset.mk),
     'fix-undo': (el) => { const snap = S.snapshot(); S.unpayFixa(el.dataset.id, el.dataset.mk); undoable('Pagamento desfeito.', snap); },
+    acc: () => { if (Cloud.user()) { ui.ajTab = 'dados'; goPage('ajustes'); } else Cloud.signIn(); },
+    'cloud-signin': () => Cloud.signIn(),
+    'cloud-sync': () => { toast('Sincronizando…'); Cloud.syncNow(); },
+    'cloud-signout': async () => { await Cloud.signOut(false); toast('Você saiu. Os dados continuam neste navegador.'); },
+    'cloud-wipe': async () => {
+      if (!(await confirmDlg('Sair e apagar os dados daqui?', 'Os dados <b>deste navegador</b> serão removidos. A cópia na sua conta Google continua na nuvem e volta quando você entrar de novo.', 'Sair e apagar'))) return;
+      await Cloud.signOut(true); toast('Você saiu e os dados locais foram apagados.');
+    },
     'goto-fixas': () => { ui.contasTab = 'fixas'; goPage('contas'); },
     'goto-cats': () => { ui.ajTab = 'categorias'; goPage('ajustes'); },
     'goto-tx': () => goPage('transacoes'),
@@ -1003,6 +1040,16 @@
 
   function boot() {
     buildNav();
+    Cloud.setConflictHandler(conflictDlg);
+    Cloud.onChange((evt, msg) => {
+      updateAccBtn();
+      if (evt === 'error') toast(msg, { kind: 'error', ms: 8000 });
+      if (evt === 'user' && Cloud.user()) toast('Conectado como ' + (Cloud.user().email || 'sua conta Google') + '.');
+      if (evt === 'pulled') toast('Dados carregados da sua conta.');
+      if (ui.page === 'ajustes' && ui.ajTab === 'dados' && !dlg.open) renderPane(false);
+    });
+    Cloud.init();
+    updateAccBtn();
     setMonthLabel(1);
     route();
     if (S.error()) toast('Não consegui salvar os dados neste navegador. Exporte um backup.', { kind: 'error', ms: 9000 });

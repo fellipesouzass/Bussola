@@ -431,3 +431,18 @@ table.prev { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-delay: 0s !important; transition-duration: .001ms !important; transition-delay: 0s !important; }
 }
+
+/* Conta Google */
+.acc-btn { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 14px 0 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); font-weight: 650; font-size: 14px; transition: transform .3s var(--spring), background .2s; }
+.acc-btn:hover { background: var(--surface-2); transform: translateY(-1px); }
+.acc-btn:active { transform: scale(.95); }
+.acc-btn svg { width: 20px; height: 20px; }
+.acc-btn.in { padding: 0; width: 42px; justify-content: center; position: relative; }
+.acc-btn img { width: 34px; height: 34px; border-radius: 50%; display: block; }
+.acc-btn .sync { position: absolute; right: 1px; bottom: 1px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--surface); background: var(--muted); transition: background .3s; }
+.acc-btn .sync.synced { background: var(--green); } .acc-btn .sync.error { background: var(--red); }
+.acc-btn .sync.syncing { background: var(--blue); animation: pulse 1s ease-in-out infinite; } .acc-btn .sync.offline { background: var(--amber); }
+.who { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.who img { width: 48px; height: 48px; border-radius: 50%; }
+.who b { display: block; } .who span { color: var(--muted); font-size: 13.5px; }
+@media (max-width: 520px) { .acc-btn:not(.in) span { display: none; } .acc-btn:not(.in) { padding: 0 10px; } }

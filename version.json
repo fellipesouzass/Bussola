@@ -1,7 +1,7 @@
 {
-  "version": "1.0.1",
+  "version": "1.1.0",
   "date": "2026-11-18",
   "notes": [
-    "Teste de atualização via GitHub"
+    "Login com Google e sincronização entre aparelhos (Firebase)"
   ]
 }

@@ -92,7 +92,7 @@
 
   /* ---------------------------------------------------------------- configurações */
 
-  const defaultSettings = { theme: 'auto', repo: '', autoCheck: true, notify: false, lastCheck: 0, lastNotifyDay: '', lastConta: '', lastCategoria: '' };
+  const defaultSettings = { theme: 'auto', repo: '', autoCheck: true, notify: false, lastCheck: 0, lastNotifyDay: '', lastConta: '', lastCategoria: '', cloudUid: '', cloudAt: 0, cloudDirty: false };
   function settings() {
     try { return { ...defaultSettings, ...JSON.parse(localStorage.getItem(SKEY) || '{}') }; } catch (e) { return { ...defaultSettings }; }
   }

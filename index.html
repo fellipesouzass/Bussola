@@ -53,6 +53,7 @@
             <span class="month-label" id="monthLabel" aria-live="polite"></span>
             <button class="icon-btn" data-act="month-next" aria-label="Próximo mês"></button>
           </div>
+          <button class="acc-btn" id="accBtn" data-act="acc" aria-label="Conta"></button>
           <button class="icon-btn" id="themeBtn" data-act="theme" aria-label="Alternar tema"></button>
         </div>
       </header>
@@ -65,10 +66,14 @@
   <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
   <noscript><p style="padding:2rem;font-family:sans-serif">A Bússola precisa de JavaScript para funcionar.</p></noscript>
 
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="js/version.js"></script>
   <script src="js/core.js"></script>
   <script src="js/store.js"></script>
   <script src="js/updater.js"></script>
+  <script src="js/cloud.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
