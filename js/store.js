@@ -119,7 +119,9 @@
   function addTransacao(draft) {
     return commit((d) => {
       const n = Math.max(1, Math.min(60, draft.parcelas | 0 || 1));
-      const novas = C.buildInstallments(draft, draft.valor, draft.tipo === 'despesa' ? n : 1, uid);
+      const manual = draft.tipo === 'despesa' && Array.isArray(draft.valores) && draft.valores.length === n ? draft.valores : null;
+      const total = manual ? manual.reduce((s, v) => s + v, 0) : draft.valor;
+      const novas = C.buildInstallments(draft, total, draft.tipo === 'despesa' ? n : 1, uid, manual);
       d.transacoes.push(...novas);
       return novas;
     });
@@ -139,12 +141,14 @@
 
   /** Compra parcelada: define o valor TOTAL e reparte entre as parcelas do grupo (centavos que sobram vão para as primeiras).
    *  Os demais campos de `patch` (categoria, conta, descrição, tipo) valem para todas; a data não é alterada. */
-  function updateParcelas(id, patch, total) {
+  function updateParcelas(id, patch, totalOuValores) {
     return commit((d) => {
       const t = byId(d.transacoes, id);
-      if (!t || !t.grupo_parcela_id || !(total > 0)) return;
+      if (!t || !t.grupo_parcela_id) return;
       const grupo = d.transacoes.filter((x) => x.grupo_parcela_id === t.grupo_parcela_id).sort((a, b) => a.parcela_atual - b.parcela_atual);
-      const valores = C.splitInstallments(total, grupo.length);
+      // número = total (repartido igualmente); lista = valor de cada parcela, informado à mão (juros)
+      const valores = Array.isArray(totalOuValores) ? totalOuValores : C.splitInstallments(totalOuValores, grupo.length);
+      if (valores.length !== grupo.length || !valores.every((v) => Number.isInteger(v) && v > 0)) return;
       const { data, valor, ...resto } = patch;
       grupo.forEach((x, i) => Object.assign(x, resto, { valor: valores[i] }));
     });

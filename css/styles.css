@@ -446,3 +446,9 @@ table.prev { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .who img { width: 48px; height: 48px; border-radius: 50%; }
 .who b { display: block; } .who span { color: var(--muted); font-size: 13.5px; }
 @media (max-width: 520px) { .acc-btn:not(.in) span { display: none; } .acc-btn:not(.in) { padding: 0 10px; } }
+
+/* Parcelas com valores diferentes */
+.prows { display: grid; gap: 8px; max-height: 240px; overflow: auto; padding: 2px; }
+.prow { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 10px; }
+.prow .input { padding: 8px 12px; text-align: right; font-variant-numeric: tabular-nums; }
+.amount[readonly] { cursor: default; }

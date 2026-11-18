@@ -1,7 +1,7 @@
 {
-  "version": "1.3.1",
+  "version": "1.4.0",
   "date": "2026-11-18",
   "notes": [
-    "Compra parcelada: ver e editar o valor total (reparte entre as parcelas) e o valor de cada parcela"
+    "Compras com juros: informe o valor de cada parcela ao lançar e ajuste parcela por parcela ao editar"
   ]
 }

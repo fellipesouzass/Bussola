@@ -46,6 +46,18 @@ test('parcelas: soma exata e meses certos (compra em 3x gera 3 lançamentos)', (
   assert.equal(a[0].grupo_parcela_id, null);
 });
 
+test('parcelas com valores informados à mão (compra com juros)', () => {
+  const base = { tipo: 'despesa', data: '2026-11-18', categoria_id: 'c', conta_id: 'a', descricao: 'Sofá' };
+  const ps = C.buildInstallments(base, 0, 3, id, [35000, 36000, 36000]);
+  assert.deepEqual(ps.map((p) => p.valor), [35000, 36000, 36000]);
+  assert.equal(ps.reduce((s, p) => s + p.valor, 0), 107000);
+  assert.deepEqual(ps.map((p) => p.data), ['2026-11-18', '2026-12-18', '2027-01-18']);
+  assert.equal(new Set(ps.map((p) => p.grupo_parcela_id)).size, 1);
+  // lista inválida (tamanho errado ou valor zero) cai no rateio igual do total
+  assert.deepEqual(C.buildInstallments(base, 9000, 3, id, [1, 2]).map((p) => p.valor), [3000, 3000, 3000]);
+  assert.deepEqual(C.buildInstallments(base, 9000, 3, id, [0, 4500, 4500]).map((p) => p.valor), [3000, 3000, 3000]);
+});
+
 test('ciclo da fatura (fechamento dia 10, vencimento dia 17)', () => {
   const conta = { id: 'cc', tipo: 'credito', dia_fechamento: 10, dia_vencimento: 17 };
   assert.deepEqual(C.invoiceCycle(conta, '2026-11-05'), { start: '2026-10-11', end: '2026-11-10', due: '2026-11-17' });

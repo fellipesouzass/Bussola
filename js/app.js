@@ -165,6 +165,11 @@
     show(cents || 0);
   }
   const centsOf = (input) => parseInt(input.dataset.cents || '0', 10);
+  /** Editor de parcelas: uma linha com campo de valor por parcela (compras com juros). Altera `values` no lugar. */
+  function rowsEditor(box, labels, values, onChange) {
+    box.innerHTML = '<div class="prows">' + labels.map((l, i) => '<div class="prow"><span class="muted small">' + esc(l) + '</span><input class="input" inputmode="numeric" data-i="' + i + '" placeholder="0,00" aria-label="Valor da parcela ' + (i + 1) + '"></div>').join('') + '</div>';
+    $$('input', box).forEach((inp) => { const i = Number(inp.dataset.i); moneyField(inp, values[i], (c) => { values[i] = c; onChange(values); }); });
+  }
   function bindSeg(seg, onChange) {
     seg.addEventListener('click', (e) => {
       const b = e.target.closest('.seg-btn');
@@ -683,14 +688,17 @@
     // compra parcelada: todas as parcelas do grupo (para mostrar/editar o total)
     const grupo = edit && edit.grupo_parcela_id ? d.transacoes.filter((t) => t.grupo_parcela_id === edit.grupo_parcela_id).sort((a, b) => a.parcela_atual - b.parcela_atual) : null;
     const grupoTotal = grupo ? grupo.reduce((s, t) => s + t.valor, 0) : 0;
-    let totalEditado = false;
+    let totalEditado = false, rowsEditadas = false;
     const body = '<form class="form" id="txForm" autocomplete="off" novalidate>' +
       segHTML('full ' + f.tipo, [['despesa', 'Despesa'], ['receita', 'Receita']], f.tipo) +
       '<div><div class="amount-cur">' + (grupo ? 'VALOR DESTA PARCELA (' + edit.parcela_atual + '/' + edit.total_parcelas + ') · R$' : 'R$') + '</div><input class="amount ' + f.tipo + '" id="fValor" inputmode="numeric" placeholder="0,00" aria-label="Valor" autofocus></div>' +
       '<div class="field"><span class="label">Categoria</span><div class="chips" id="fCats"></div></div>' +
       '<div class="field"><span class="label">Conta</span><div class="chips" id="fContas">' + d.contas.map((a) => '<button type="button" class="chip" data-id="' + esc(a.id) + '" style="--c:' + (ACC[a.tipo] || ACC.pix).c + '" aria-pressed="' + (a.id === f.conta) + '">' + ico(a.tipo in I ? a.tipo : 'pix') + esc(a.nome) + '</button>').join('') + '</div></div>' +
-      '<div class="collapse" id="fParc"><div><div class="field" style="padding-top:2px"><span class="label">Parcelas</span><div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap"><div class="stepper"><button type="button" data-st="-1" aria-label="Menos parcelas">−</button><b id="fN">1×</b><button type="button" data-st="1" aria-label="Mais parcelas">+</button></div><span class="hint" id="fParcHint"></span></div></div></div></div>' +
-      (grupo ? '<div class="card" style="padding:14px;background:var(--surface-2);box-shadow:none"><div class="field"><label for="fTotal">Valor total da compra (' + grupo.length + (grupo.length === 1 ? ' parcela' : ' parcelas') + ')</label><input class="input" id="fTotal" inputmode="numeric" placeholder="0,00"></div><p class="hint" id="fTotalHint" style="margin-top:8px"></p></div>' : '') +
+      '<div class="collapse" id="fParc"><div><div class="field" style="padding-top:2px"><span class="label">Parcelas</span><div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap"><div class="stepper"><button type="button" data-st="-1" aria-label="Menos parcelas">−</button><b id="fN">1×</b><button type="button" data-st="1" aria-label="Mais parcelas">+</button></div><span class="hint" id="fParcHint"></span></div></div>' +
+        '<div class="opt" style="padding:12px 0 0"><div><b>Compra com juros</b><div class="hint">Informe o valor de cada parcela</div></div>' + switchHTML('fSwitch', false, 'Informar o valor de cada parcela') + '</div>' +
+        '<div class="collapse" id="fManual"><div><div class="field" style="padding-top:10px"><label for="fAll">Valor de cada parcela (preenche todas)</label><input class="input" id="fAll" inputmode="numeric" placeholder="0,00"></div><div id="fRows" style="margin-top:10px"></div></div></div></div></div>' +
+      (grupo ? '<div class="card" style="padding:14px;background:var(--surface-2);box-shadow:none"><div class="field"><label for="fTotal">Valor total da compra (' + grupo.length + (grupo.length === 1 ? ' parcela' : ' parcelas') + ')</label><input class="input" id="fTotal" inputmode="numeric" placeholder="0,00"></div><p class="hint" id="fTotalHint" style="margin-top:8px"></p>' +
+        '<div class="opt" style="padding:10px 0 0"><div><b>Ajustar parcela por parcela</b><div class="hint">Para valores diferentes (juros)</div></div>' + switchHTML('fEditSwitch', false, 'Ajustar parcela por parcela') + '</div><div class="collapse" id="fEditWrap"><div><div id="fEditRows" style="margin-top:10px"></div></div></div></div>' : '') +
       '<div class="grid g2" style="gap:12px"><div class="field"><label for="fData">Data</label><input type="date" class="input" id="fData" required></div><div class="field"><label for="fDesc">Descrição (opcional)</label><input class="input" id="fDesc" maxlength="80" placeholder="Ex.: mercado"></div></div>' +
       '<div class="btn-row">' + (edit ? '<button type="button" class="btn btn-danger" id="fDel">' + ico('trash') + 'Excluir</button>' : '') + '<button class="btn btn-primary" style="flex:1;padding:14px" type="submit">' + (edit ? 'Salvar alterações' : 'Lançar') + '</button></div></form>';
 
@@ -701,17 +709,45 @@
           const a = S.conta(f.conta);
           const show = !edit && f.tipo === 'despesa' && a && a.tipo === 'credito';
           parc.classList.toggle('open', show);
-          if (!show) f.parcelas = 1;
+          if (!show) { f.parcelas = 1; if (f.manual) setManual(false); }
           $('#fN', root).textContent = f.parcelas + '×';
-          $('#fParcHint', root).textContent = f.parcelas > 1 && f.cents ? f.parcelas + '× de ' + R(C.splitInstallments(f.cents, f.parcelas)[0]) + (f.cents % f.parcelas ? ' (centavos na 1ª)' : '') : 'Digite o valor total da compra';
+          $('#fParcHint', root).textContent = f.manual ? f.parcelas + ' parcelas · total ' + R(f.cents) + ' (soma das parcelas)'
+            : f.parcelas > 1 && f.cents ? f.parcelas + '× de ' + R(C.splitInstallments(f.cents, f.parcelas)[0]) + (f.cents % f.parcelas ? ' (centavos na 1ª)' : '') : 'Digite o valor total da compra';
         };
         const drawCats = () => { pickCat(); catsBox.innerHTML = catsOf(f.tipo).map((c) => chipCat(c, c.id === f.cat)).join(''); };
+
+        /* compra com juros (lançamento novo): valor de cada parcela informado à mão */
+        const man = $('#fManual', root), sw = $('#fSwitch', root), rowsBox = $('#fRows', root);
+        f.manual = false; f.valores = [];
+        const setVal = (c) => { f.cents = c; val.dataset.cents = c; val.value = c ? R(c, { symbol: false }) : ''; };
+        const sync = () => { setVal(f.valores.reduce((s, v) => s + (v || 0), 0)); refresh(); };
+        const drawRows = () => {
+          const n = f.parcelas, base = Math.round((f.cents || 0) / n), d0 = $('#fData', root).value;
+          while (f.valores.length < n) f.valores.push(f.valores.length ? f.valores[f.valores.length - 1] : base);
+          f.valores.length = n;
+          rowsEditor(rowsBox, f.valores.map((_, i) => (i + 1) + '/' + n + ' · ' + C.fmtShort(C.addMonths(C.isValidISO(d0) ? d0 : hoje, i))), f.valores, sync);
+        };
+        function setManual(on) {
+          f.manual = on; sw.setAttribute('aria-checked', String(on)); man.classList.toggle('open', on); val.readOnly = on;
+          if (on) { f.valores = C.splitInstallments(f.cents || 0, f.parcelas); drawRows(); sync(); } else refresh();
+        }
+        sw.addEventListener('click', () => setManual(!f.manual));
+        moneyField($('#fAll', root), 0, (c) => { f.valores = Array(f.parcelas).fill(c); drawRows(); sync(); });
+        $('#fData', root).addEventListener('change', () => { if (f.manual) drawRows(); });
+
         if (grupo) {
           const tot = $('#fTotal', root), hint = $('#fTotalHint', root);
           const idx = grupo.findIndex((t) => t.id === edit.id);
-          const dica = () => { const n = grupo.length, c = Math.round(centsOf(tot)); hint.textContent = c ? n + '× de ' + R(C.splitInstallments(c, n)[0]) + (c % n ? ' (centavos nas primeiras parcelas)' : '') + ' · alterar o total reajusta todas as parcelas' : ''; };
-          moneyField(tot, grupoTotal, (c) => { totalEditado = true; f.cents = C.splitInstallments(c, grupo.length)[idx]; val.dataset.cents = f.cents; val.value = f.cents ? R(f.cents, { symbol: false }) : ''; dica(); });
-          moneyField(val, f.cents, (c) => { f.cents = c; totalEditado = false; const t = c * grupo.length; tot.dataset.cents = t; tot.value = t ? R(t, { symbol: false }) : ''; dica(); refresh(); });
+          const vals = grupo.map((t) => t.valor), labels = grupo.map((t) => t.parcela_atual + '/' + t.total_parcelas + ' · ' + C.fmtShort(t.data));
+          const wrap = $('#fEditWrap', root), esw = $('#fEditSwitch', root), ebox = $('#fEditRows', root);
+          const setTot = (c) => { tot.dataset.cents = c; tot.value = c ? R(c, { symbol: false }) : ''; };
+          const setMain = (c) => { f.cents = c; val.dataset.cents = c; val.value = c ? R(c, { symbol: false }) : ''; };
+          const redraw = () => { if (esw.getAttribute('aria-checked') === 'true') rowsEditor(ebox, labels, vals, onRow); };
+          const dica = () => { const n = grupo.length, c = vals.reduce((s, v) => s + v, 0); hint.textContent = n + (rowsEditadas ? ' parcelas de valores diferentes' : '× de ' + R(vals[0]) + (c % n ? ' (centavos nas primeiras parcelas)' : '')) + ' · alterar o total reajusta todas as parcelas'; };
+          function onRow() { rowsEditadas = true; totalEditado = false; setTot(vals.reduce((s, v) => s + v, 0)); setMain(vals[idx]); dica(); }
+          moneyField(tot, grupoTotal, (c) => { totalEditado = true; rowsEditadas = false; C.splitInstallments(c, grupo.length).forEach((v, i) => { vals[i] = v; }); setMain(vals[idx]); dica(); redraw(); });
+          moneyField(val, f.cents, (c) => { f.cents = c; totalEditado = false; rowsEditadas = false; vals.fill(c); setTot(c * grupo.length); dica(); redraw(); refresh(); });
+          esw.addEventListener('click', () => { const on = esw.getAttribute('aria-checked') !== 'true'; esw.setAttribute('aria-checked', String(on)); wrap.classList.toggle('open', on); if (on) rowsEditor(ebox, labels, vals, onRow); });
           dica();
         } else moneyField(val, f.cents, (c) => { f.cents = c; refresh(); });
         $('#fData', root).value = f.data; $('#fDesc', root).value = f.desc;
@@ -719,7 +755,7 @@
         bindSeg(seg, (v) => { f.tipo = v; seg.className = 'seg full ' + v; val.className = 'amount ' + v; drawCats(); refresh(); });
         bindChips(catsBox, (cid) => { f.cat = cid; });
         bindChips($('#fContas', root), (cid) => { f.conta = cid; refresh(); });
-        $$('[data-st]', root).forEach((b) => b.addEventListener('click', () => { f.parcelas = Math.max(1, Math.min(48, f.parcelas + Number(b.dataset.st))); refresh(); }));
+        $$('[data-st]', root).forEach((b) => b.addEventListener('click', () => { f.parcelas = Math.max(1, Math.min(48, f.parcelas + Number(b.dataset.st))); if (f.manual) { drawRows(); sync(); } else refresh(); }));
         if (edit) $('#fDel', root).addEventListener('click', () => { closeDialog(); deleteTx(edit.id); });
         $('#txForm', root).addEventListener('submit', async (e) => {
           e.preventDefault();
@@ -727,13 +763,18 @@
           if (!f.cents) { val.focus(); val.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-8px)' }, { transform: 'translateX(8px)' }, { transform: 'translateX(0)' }], { duration: 280 }); return toast('Digite o valor.', { kind: 'error' }); }
           if (!C.isValidISO(f.data)) return toast('Escolha uma data válida.', { kind: 'error' });
           if (!f.cat || !f.conta) return toast('Escolha a categoria e a conta.', { kind: 'error' });
+          if (!edit && f.manual && f.valores.some((v) => !(v > 0))) return toast('Preencha o valor de todas as parcelas.', { kind: 'error' });
           S.setSettings({ lastConta: f.conta, lastCategoria: f.tipo === 'despesa' ? f.cat : S.settings().lastCategoria });
           const snap = S.snapshot();
           try {
             if (edit) {
               let scope = 'one';
               const patch = { tipo: f.tipo, valor: f.cents, data: f.data, categoria_id: f.cat, conta_id: f.conta, descricao: f.desc };
-              if (grupo && totalEditado) { // o total vale para a compra inteira: reparte entre as parcelas
+              if (grupo && rowsEditadas) { // valores diferentes por parcela (juros)
+                const vs = $$('#fEditRows input', root).map((i) => centsOf(i));
+                if (vs.some((v) => !(v > 0))) return toast('Preencha o valor de todas as parcelas.', { kind: 'error' });
+                S.updateParcelas(edit.id, patch, vs);
+              } else if (grupo && totalEditado) { // o total vale para a compra inteira: reparte entre as parcelas
                 S.updateParcelas(edit.id, patch, centsOf($('#fTotal', root)));
               } else {
                 if (edit.grupo_parcela_id) { scope = await scopeDlg(edit, 'alterar'); if (!scope) return; }
@@ -742,7 +783,7 @@
               closeDialog();
               undoable('Lançamento atualizado.', snap);
             } else {
-              const novas = S.addTransacao({ tipo: f.tipo, valor: f.cents, data: f.data, categoria_id: f.cat, conta_id: f.conta, descricao: f.desc, parcelas: f.parcelas });
+              const novas = S.addTransacao({ tipo: f.tipo, valor: f.cents, data: f.data, categoria_id: f.cat, conta_id: f.conta, descricao: f.desc, parcelas: f.parcelas, valores: f.manual ? f.valores.slice() : undefined });
               closeDialog();
               const mk = C.monthKey(f.data);
               if (mk !== ui.month) { const dir = mk > ui.month ? 1 : -1; ui.month = mk; setMonthLabel(dir); }

@@ -126,9 +126,11 @@
    * Gera N lançamentos (um por mês) com o mesmo grupo_parcela_id.
    * `base` traz tipo, data (da 1ª parcela), categoria_id, conta_id, descricao; `total` é o valor total da compra.
    */
-  function buildInstallments(base, total, n, newId) {
+  function buildInstallments(base, total, n, newId, valores) {
     const grupo = n > 1 ? newId() : null;
-    return splitInstallments(total, n).map((valor, i) => ({
+    // `valores` (opcional): valor de cada parcela informado à mão, p.ex. compra com juros (a soma passa a ser o total)
+    const partes = Array.isArray(valores) && valores.length === n && valores.every((v) => Number.isInteger(v) && v > 0) ? valores : splitInstallments(total, n);
+    return partes.map((valor, i) => ({
       id: newId(),
       tipo: base.tipo,
       valor,
