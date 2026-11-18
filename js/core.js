@@ -273,9 +273,20 @@
   }
 
   /** Ocorrências do mês, derivadas do cadastro (nunca gravadas → nunca duplicam). */
+  /**
+   * A conta fixa / receita recorrente ocorre no mês `mk` ("AAAA-MM")?
+   * Vale a partir de `inicio`, até `fim` (opcional) e, se `meses` (1–12) tiver itens, só nesses meses do ano (ex.: 13º em dezembro).
+   */
+  function occursIn(cf, mk) {
+    if (cf.ativa === false) return false;
+    if (cf.inicio && cf.inicio > mk) return false;
+    if (cf.fim && cf.fim < mk) return false;
+    return !Array.isArray(cf.meses) || !cf.meses.length || cf.meses.includes(Number(mk.slice(5, 7)));
+  }
+
   function fixedOccurrences(fixas, mk, txs, today) {
     return fixas
-      .filter((cf) => cf.ativa !== false && (!cf.inicio || cf.inicio <= mk))
+      .filter((cf) => occursIn(cf, mk))
       .map((cf) => ({ cf, ...fixedStatus(cf, mk, txs, today) }))
       .sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : 0));
   }
@@ -499,7 +510,7 @@
     splitInstallments, buildInstallments, invoiceCycle, invoiceTotal, creditCommitted, accountBalance,
     invoiceIsPaid, invoiceStatus, invoiceList, isPaidCharge,
     summary, inMonth, spentByCategory, budgetLevel, budgetPercent, budgetTotal, budgetRows,
-    fixedDueDate, fixedStatus, fixedOccurrences, isIncome, pendingIncome, dueRecurring, projection, compareMonths, riskRanking,
+    fixedDueDate, fixedStatus, fixedOccurrences, occursIn, isIncome, pendingIncome, dueRecurring, projection, compareMonths, riskRanking,
     normText, parseCSV, detectMapping, parseDate, importHash, buildImport, toCSV, compareVersions,
   };
 });

@@ -1,7 +1,7 @@
 {
-  "version": "1.5.0",
+  "version": "1.6.0",
   "date": "2026-11-18",
   "notes": [
-    "Receitas recorrentes (ex.: salário): cadastre uma vez e o recebimento é lançado todo mês, sozinho ou com o botão Recebi"
+    "Receitas recorrentes: escolha o mês inicial, o mês final e os meses de recebimento (ex.: 13º em dezembro)"
   ]
 }

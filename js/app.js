@@ -374,7 +374,7 @@
       ? '<button class="btn btn-sm" data-act="fix-undo" data-id="' + esc(o.cf.id) + '" data-mk="' + mk + '">Desfazer</button>'
       : '<button class="btn btn-sm btn-primary" data-act="fix-pay" data-id="' + esc(o.cf.id) + '" data-mk="' + mk + '">' + ico('check') + (inc ? 'Recebi' : 'Pagar') + '</button>';
     return '<div class="row" role="button" tabindex="0" data-act="fix-edit" data-id="' + esc(o.cf.id) + '" style="--c:' + safeColor(c.cor) + '"><span class="row-ico"><b>' + esc(o.cf.dia_vencimento) + '</b></span>' +
-      '<div class="row-main"><div class="row-title">' + esc(o.cf.nome) + (inc && o.cf.auto ? ' <span class="muted small">· automática</span>' : '') + '</div><div class="row-meta">' + esc(c.nome) + ' · ' + esc(quando) + ' (' + C.fmtShort(o.due) + ')</div></div>' +
+      '<div class="row-main"><div class="row-title">' + esc(o.cf.nome) + (inc && o.cf.auto ? ' <span class="muted small">· automática</span>' : '') + (o.cf.meses && o.cf.meses.length ? ' <span class="muted small">· só em ' + o.cf.meses.map((m) => ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][m - 1]).join(', ') + '</span>' : '') + '</div><div class="row-meta">' + esc(c.nome) + ' · ' + esc(quando) + ' (' + C.fmtShort(o.due) + ')</div></div>' +
       (compact ? '' : '<span class="badge ' + o.status + '">' + label + '</span>') + '<span class="row-amt money ' + (inc ? 'in' : '') + '">' + (inc ? '+' : '') + R(o.cf.valor) + '</span>' + btn + '</div>';
   }
   function paneFixas() {
@@ -916,6 +916,7 @@
     const tipo0 = fx ? (C.isIncome(fx) ? 'receita' : 'despesa') : (tipoNovo === 'receita' ? 'receita' : 'despesa');
     const f = {
       tipo: tipo0, ativa: fx ? fx.ativa !== false : true, auto: fx ? !!fx.auto : true,
+      ini: fx && fx.inicio ? fx.inicio : C.monthKey(today()), fim: (fx && fx.fim) || '', meses: fx && Array.isArray(fx.meses) ? fx.meses.slice() : [],
       cat: fx ? fx.categoria_id : (catsDe(tipo0)[0] || {}).id,
       conta: fx && fx.conta_id && recebem.find((c) => c.id === fx.conta_id) ? fx.conta_id : (S.conta(S.settings().lastConta) && S.conta(S.settings().lastConta).tipo !== 'credito' ? S.settings().lastConta : (recebem[0] || {}).id),
     };
@@ -927,6 +928,8 @@
       '<div class="field"><span class="label">Categoria</span><div class="chips" id="xCats">' + catsDe(f.tipo).map((c) => chipCat(c, c.id === f.cat)).join('') + '</div></div>' +
       '<div class="collapse' + (rec ? ' open' : '') + '" id="xRec"><div>' +
         '<div class="field" style="padding-top:2px"><span class="label">Conta que recebe</span><div class="chips" id="xContas">' + recebem.map((a) => '<button type="button" class="chip" data-id="' + esc(a.id) + '" style="--c:' + (ACC[a.tipo] || ACC.pix).c + '" aria-pressed="' + (a.id === f.conta) + '">' + ico(a.tipo in I ? a.tipo : 'pix') + esc(a.nome) + '</button>').join('') + '</div></div>' +
+        '<div class="grid g2" style="gap:12px;padding-top:14px"><div class="field"><label for="xIni">Começa em (mês)</label><input type="month" class="input" id="xIni" placeholder="AAAA-MM"></div><div class="field"><label for="xFim">Termina em (opcional)</label><input type="month" class="input" id="xFim" placeholder="AAAA-MM"></div></div>' +
+        '<div class="field" style="padding-top:14px"><span class="label">Meses de recebimento</span><div class="chips" id="xMeses">' + ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'].map((n, i) => '<button type="button" class="chip" data-m="' + (i + 1) + '" aria-pressed="' + f.meses.includes(i + 1) + '">' + n + '</button>').join('') + '</div><p class="hint" style="margin-top:6px">Nenhum marcado = todos os meses. Para um 13º salário ou bônus anual, marque só os meses em que ele cai (ex.: Dez).</p></div>' +
         '<div class="opt" style="padding:12px 0 0"><div><b>Lançar sozinha no dia</b><div class="hint">Ao abrir o app a partir desse dia, o recebimento do mês entra nos lançamentos (uma vez por mês). Desligado, você marca “Recebi” manualmente.</div></div>' + switchHTML('xAuto', f.auto, 'Lançar sozinha no dia do recebimento') + '</div></div></div>' +
       (fx ? '<div class="opt" style="padding:0"><div><b>Ativa</b><div class="hint">Pausada, ela deixa de aparecer nos próximos meses (o histórico fica).</div></div>' + switchHTML('xAtiva', f.ativa, 'Ativa') + '</div>' : '') +
       '<div class="btn-row">' + (fx ? '<button type="button" class="btn btn-danger" id="xDel">' + ico('trash') + 'Excluir</button>' : '') + '<button class="btn btn-primary" style="flex:1;padding:14px">' + (fx ? 'Salvar' : 'Cadastrar') + '</button></div></form>';
@@ -937,6 +940,14 @@
         const catsBox = $('#xCats', root);
         bindChips(catsBox, (cid) => { f.cat = cid; });
         bindChips($('#xContas', root), (cid) => { f.conta = cid; });
+        $('#xIni', root).value = f.ini; $('#xFim', root).value = f.fim;
+        $('#xMeses', root).addEventListener('click', (e) => {
+          const b = e.target.closest('.chip');
+          if (!b) return;
+          const m = Number(b.dataset.m), on = !f.meses.includes(m);
+          f.meses = on ? [...f.meses, m].sort((a, c) => a - c) : f.meses.filter((x) => x !== m);
+          b.setAttribute('aria-pressed', String(on));
+        });
         const au = $('#xAuto', root); au.addEventListener('click', () => { f.auto = !f.auto; au.setAttribute('aria-checked', String(f.auto)); });
         const tseg = $('.seg', root);
         if (tseg) bindSeg(tseg, (v) => {
@@ -960,7 +971,14 @@
           if (!f.cat) return toast('Escolha uma categoria.', { kind: 'error' });
           const inc = f.tipo === 'receita';
           if (inc && !f.conta) return toast('Escolha a conta que recebe.', { kind: 'error' });
+          const ini = $('#xIni', root).value.trim(), fim = $('#xFim', root).value.trim();
+          if (inc) {
+            if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ini)) return toast('Informe o mês inicial (AAAA-MM).', { kind: 'error' });
+            if (fim && !/^\d{4}-(0[1-9]|1[0-2])$/.test(fim)) return toast('Mês final inválido (use AAAA-MM).', { kind: 'error' });
+            if (fim && fim < ini) return toast('O mês final não pode ser antes do inicial.', { kind: 'error' });
+          }
           const obj = { nome, valor, dia_vencimento: dia, categoria_id: f.cat, ativa: f.ativa, tipo: inc ? 'receita' : 'despesa', auto: inc ? f.auto : false, conta_id: inc ? f.conta : null };
+          if (inc) Object.assign(obj, { inicio: ini, fim: fim || null, meses: f.meses.slice() });
           if (fx) obj.id = fx.id;
           S.upsertFixa(obj);
           closeDialog();

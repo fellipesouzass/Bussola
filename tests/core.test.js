@@ -187,6 +187,25 @@ test('receita recorrente (salário): status, a receber e lançamento automático
   assert.equal(p.fixasPendentes, 100000);
 });
 
+test('receita recorrente: mês inicial, mês final e meses escolhidos (13º em dezembro)', () => {
+  const base = { id: 'r', tipo: 'receita', nome: 'X', valor: 100, dia_vencimento: 10, categoria_id: 'c', ativa: true };
+  const mk = (cf, m) => C.occursIn({ ...base, ...cf }, m);
+  assert.equal(mk({ inicio: '2026-03' }, '2026-02'), false);
+  assert.equal(mk({ inicio: '2026-03' }, '2026-03'), true);
+  assert.equal(mk({ inicio: '2026-03', fim: '2026-06' }, '2026-06'), true);
+  assert.equal(mk({ inicio: '2026-03', fim: '2026-06' }, '2026-07'), false);
+  assert.equal(mk({ meses: [12] }, '2026-12'), true);
+  assert.equal(mk({ meses: [12] }, '2026-11'), false);
+  assert.equal(mk({ meses: [] }, '2026-11'), true); // lista vazia = todos os meses
+  assert.equal(mk({ meses: [6, 12], inicio: '2026-01' }, '2026-06'), true);
+  assert.equal(mk({ ativa: false }, '2026-06'), false);
+  // 13º só aparece e só é "devida" em dezembro
+  const decimo = { ...base, auto: true, meses: [12], inicio: '2026-01' };
+  assert.equal(C.dueRecurring([decimo], [], '2026-11-20').length, 0);
+  assert.equal(C.dueRecurring([decimo], [], '2026-12-20').length, 1);
+  assert.equal(C.pendingIncome([decimo], '2026-11', [], '2026-11-20'), 0);
+});
+
 test('projeção inclui contas fixas pendentes e parcelas futuras', () => {
   const fixa = { id: 'f1', nome: 'Aluguel', valor: 100000, dia_vencimento: 20, ativa: true, inicio: '2026-01' };
   const hoje = '2026-11-10';
