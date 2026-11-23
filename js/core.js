@@ -164,6 +164,19 @@
     return { start: addDays(prevClose, 1), end: endISO, due: isoOf(due.y, due.m, clampDay(due.y, due.m, venc)) };
   }
 
+  /**
+   * Em qual fatura cai uma compra feita em `dataISO` neste cartão?
+   * Retorna o ciclo (start/end/due), o mês de vencimento e `delta` = meses entre o mês da compra e o mês em que a fatura vence
+   * (0 = vem no próprio mês da compra, 1 = mês seguinte, 2 = daqui a dois meses…).
+   * Compra no dia do fechamento ainda entra na fatura que fecha naquele dia; a partir do dia seguinte, vai para a próxima.
+   */
+  function invoiceFor(conta, dataISO) {
+    const c = invoiceCycle(conta, dataISO);
+    const dueMonth = c.due.slice(0, 7), buyMonth = dataISO.slice(0, 7);
+    const idx = (mk) => Number(mk.slice(0, 4)) * 12 + Number(mk.slice(5, 7));
+    return { ...c, dueMonth, delta: idx(dueMonth) - idx(buyMonth) };
+  }
+
   const signed = (t) => (t.tipo === 'receita' ? t.valor : -t.valor);
 
   /** Fatura estimada: despesas (menos estornos) da conta de crédito dentro do ciclo. */
@@ -508,7 +521,7 @@
     TZ, MESES, fmtBRL, parseMoney, todayISO, parseISO, isoOf, daysInMonth, clampDay, shiftMonth, addMonths, addDays, daysBetween,
     monthKey, shiftMonthKey, monthLabel, monthShort, fmtDate, fmtShort, dayHeading, isValidISO,
     splitInstallments, buildInstallments, invoiceCycle, invoiceTotal, creditCommitted, accountBalance,
-    invoiceIsPaid, invoiceStatus, invoiceList, isPaidCharge,
+    invoiceIsPaid, invoiceStatus, invoiceList, isPaidCharge, invoiceFor,
     summary, inMonth, spentByCategory, budgetLevel, budgetPercent, budgetTotal, budgetRows,
     fixedDueDate, fixedStatus, fixedOccurrences, occursIn, isIncome, pendingIncome, dueRecurring, projection, compareMonths, riskRanking,
     normText, parseCSV, detectMapping, parseDate, importHash, buildImport, toCSV, compareVersions,

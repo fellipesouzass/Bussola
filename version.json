@@ -1,7 +1,7 @@
 {
-  "version": "1.6.0",
-  "date": "2026-11-18",
+  "version": "1.7.0",
+  "date": "2026-11-23",
   "notes": [
-    "Receitas recorrentes: escolha o mês inicial, o mês final e os meses de recebimento (ex.: 13º em dezembro)"
+    "Transações mostra os gastos fixos do mês; ao lançar no cartão o app calcula em qual fatura/mês a compra vem, pelo dia da compra e o fechamento"
   ]
 }

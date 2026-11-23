@@ -68,6 +68,20 @@ test('ciclo da fatura (fechamento dia 10, vencimento dia 17)', () => {
   assert.deepEqual(C.invoiceCycle(c2, '2026-11-20'), { start: '2026-10-26', end: '2026-11-25', due: '2026-12-05' });
 });
 
+test('a data da compra define em que fatura/mês ela vem (fecha dia 10, vence dia 17)', () => {
+  const conta = { id: 'cc', tipo: 'credito', dia_fechamento: 10, dia_vencimento: 17 };
+  const f = (d) => { const i = C.invoiceFor(conta, d); return [i.end, i.due, i.dueMonth, i.delta]; };
+  assert.deepEqual(f('2026-12-05'), ['2026-12-10', '2026-12-17', '2026-12', 0]); // antes do fechamento: vem neste mês
+  assert.deepEqual(f('2026-12-10'), ['2026-12-10', '2026-12-17', '2026-12', 0]); // no dia do fechamento ainda entra
+  assert.deepEqual(f('2026-12-11'), ['2027-01-10', '2027-01-17', '2027-01', 1]); // depois: mês seguinte
+  assert.deepEqual(f('2026-12-31'), ['2027-01-10', '2027-01-17', '2027-01', 1]);
+  // vencimento antes do fechamento (fecha 25, vence 5): vence só no segundo mês
+  const c2 = { id: 'c2', tipo: 'credito', dia_fechamento: 25, dia_vencimento: 5 };
+  const i = C.invoiceFor(c2, '2026-12-20');
+  assert.deepEqual([i.end, i.due, i.delta], ['2026-12-25', '2027-01-05', 1]);
+  assert.equal(C.invoiceFor(c2, '2026-12-26').delta, 2);
+});
+
 test('fatura estimada soma só o ciclo correto', () => {
   const conta = { id: 'cc', tipo: 'credito', dia_fechamento: 10, dia_vencimento: 17 };
   const txs = [

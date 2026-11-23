@@ -282,7 +282,7 @@
   /* ---------------------------------------------------------------- Transações */
   function txRow(t) {
     const c = cat(t.categoria_id), a = conta(t.conta_id);
-    const meta = [c.nome, a.nome, t.total_parcelas ? 'parcela ' + t.parcela_atual + '/' + t.total_parcelas : '', t.conta_fixa_id ? 'conta fixa' : '', t.data > today() ? 'agendada' : '', C.isPaidCharge(t, a, today()) ? 'fatura paga' : ''].filter(Boolean).join(' · ');
+    const meta = [c.nome, a.nome, t.total_parcelas ? 'parcela ' + t.parcela_atual + '/' + t.total_parcelas : '', t.conta_fixa_id ? 'conta fixa' : '', t.data > today() ? 'agendada' : '', C.isPaidCharge(t, a, today()) ? 'fatura paga' : (a.tipo === 'credito' && t.tipo === 'despesa' ? 'fatura ' + C.monthShort(C.invoiceFor(a, t.data).dueMonth) : '')].filter(Boolean).join(' · ');
     return '<div class="row" role="button" tabindex="0" data-act="tx-edit" data-id="' + esc(t.id) + '" style="--c:' + safeColor(c.cor) + '">' +
       '<span class="row-ico"><b>' + esc((c.nome || '?').trim().charAt(0).toUpperCase()) + '</b></span>' +
       '<div class="row-main"><div class="row-title">' + esc(t.descricao || c.nome) + '</div><div class="row-meta">' + esc(meta) + '</div></div>' +
@@ -296,6 +296,7 @@
       '<select class="select" id="fConta" style="width:auto;min-width:150px" aria-label="Filtrar por conta"><option value="todas">Todas as contas</option>' + d.contas.map((c) => '<option value="' + esc(c.id) + '"' + (ui.fConta === c.id ? ' selected' : '') + '>' + esc(c.nome) + '</option>').join('') + '</select>' +
       segHTML('', [['todos', 'Todos'], ['despesa', 'Despesas'], ['receita', 'Receitas']], ui.txTipo, 'txTipo') +
       '<button class="btn" data-act="export-view">' + ico('download') + 'Exportar CSV</button></div>' +
+      '<div id="txFixas" class="st"></div>' +
       '<div id="txSum" class="st" style="margin-bottom:16px"></div>' +
       '<section class="card st"><div id="txList" class="list"></div></section>';
   }
@@ -308,7 +309,27 @@
     if (q) list = list.filter((t) => C.normText([t.descricao, cat(t.categoria_id).nome, conta(t.conta_id).nome, R(t.valor)].join(' ')).includes(q));
     return list.slice().sort(byDateDesc);
   }
+  /** Contas fixas e receitas recorrentes do mês, no topo das transações (visão dos gastos fixos mensais). */
+  function renderTxFixas() {
+    const box = $('#txFixas');
+    if (!box) return;
+    const d = D(), mk = ui.month, hoje = today();
+    const occ = C.fixedOccurrences(d.contas_fixas, mk, d.transacoes, hoje);
+    if (ui.q || ui.fConta !== 'todas' || !occ.length) {
+      box.innerHTML = ui.q || ui.fConta !== 'todas' ? '' : '<section class="card" style="margin-bottom:16px"><div class="card-head" style="margin:0"><h2>Gastos fixos de ' + esc(C.monthLabel(mk).toLowerCase()) + '</h2><button class="link" data-act="goto-fixas">Cadastrar</button></div><p class="hint" style="margin-top:8px">Nenhuma conta fixa neste mês. Cadastre aluguel, internet, assinaturas… e acompanhe aqui.</p></section>';
+      return;
+    }
+    const desp = occ.filter((o) => !C.isIncome(o.cf)), inc = occ.filter((o) => C.isIncome(o.cf));
+    const soma = (l, f) => l.filter(f).reduce((s, o) => s + o.cf.valor, 0);
+    const total = soma(desp, () => true), pago = soma(desp, (o) => o.status === 'paga');
+    const resumo = desp.length ? 'Gastos fixos: <b class="money">' + R(total) + '</b> no mês · pago ' + R(pago) + ' · falta ' + R(total - pago) : '';
+    const rec = inc.length ? (resumo ? ' · ' : '') + 'receitas recorrentes: ' + R(soma(inc, () => true)) : '';
+    box.innerHTML = '<section class="card" style="margin-bottom:16px"><div class="card-head"><h2>Gastos fixos de ' + esc(C.monthLabel(mk).toLowerCase()) + '</h2><button class="link" data-act="goto-fixas">Gerenciar</button></div>' +
+      '<p class="hint" style="margin-bottom:8px">' + resumo + rec + '</p><div class="list">' + occ.map((o) => fixRow(o, mk)).join('') + '</div></section>';
+  }
+
   function renderTxList(animate, flashId) {
+    renderTxFixas();
     const list = filteredTx(), hoje = today();
     let rec = 0, desp = 0;
     list.forEach((t) => { if (t.tipo === 'receita') rec += t.valor; else desp += t.valor; });
@@ -711,7 +732,8 @@
         '<div class="collapse" id="fManual"><div><div class="field" style="padding-top:10px"><label for="fAll">Valor de cada parcela (preenche todas)</label><input class="input" id="fAll" inputmode="numeric" placeholder="0,00"></div><div id="fRows" style="margin-top:10px"></div></div></div></div></div>' +
       (grupo ? '<div class="card" style="padding:14px;background:var(--surface-2);box-shadow:none"><div class="field"><label for="fTotal">Valor total da compra (' + grupo.length + (grupo.length === 1 ? ' parcela' : ' parcelas') + ')</label><input class="input" id="fTotal" inputmode="numeric" placeholder="0,00"></div><p class="hint" id="fTotalHint" style="margin-top:8px"></p>' +
         '<div class="opt" style="padding:10px 0 0"><div><b>Ajustar parcela por parcela</b><div class="hint">Para valores diferentes (juros)</div></div>' + switchHTML('fEditSwitch', false, 'Ajustar parcela por parcela') + '</div><div class="collapse" id="fEditWrap"><div><div id="fEditRows" style="margin-top:10px"></div></div></div></div>' : '') +
-      '<div class="grid g2" style="gap:12px"><div class="field"><label for="fData">Data</label><input type="date" class="input" id="fData" required></div><div class="field"><label for="fDesc">Descrição (opcional)</label><input class="input" id="fDesc" maxlength="80" placeholder="Ex.: mercado"></div></div>' +
+      '<div class="grid g2" style="gap:12px"><div class="field"><label for="fData">Dia da compra</label><input type="date" class="input" id="fData" required></div><div class="field"><label for="fDesc">Descrição (opcional)</label><input class="input" id="fDesc" maxlength="80" placeholder="Ex.: mercado"></div></div>' +
+      '<div id="fFatWrap" hidden><div class="alert info">' + ico('credito') + '<span id="fFatura"></span></div></div>' +
       '<div class="btn-row">' + (edit ? '<button type="button" class="btn btn-danger" id="fDel">' + ico('trash') + 'Excluir</button>' : '') + '<button class="btn btn-primary" style="flex:1;padding:14px" type="submit">' + (edit ? 'Salvar alterações' : 'Lançar') + '</button></div></form>';
 
     openDialog(sheet(edit ? 'Editar lançamento' : 'Novo lançamento', body), {
@@ -725,8 +747,22 @@
           $('#fN', root).textContent = f.parcelas + '×';
           $('#fParcHint', root).textContent = f.manual ? f.parcelas + ' parcelas · total ' + R(f.cents) + ' (soma das parcelas)'
             : f.parcelas > 1 && f.cents ? f.parcelas + '× de ' + R(C.splitInstallments(f.cents, f.parcelas)[0]) + (f.cents % f.parcelas ? ' (centavos na 1ª)' : '') : 'Digite o valor total da compra';
+          fatura();
         };
         const drawCats = () => { pickCat(); catsBox.innerHTML = catsOf(f.tipo).map((c) => chipCat(c, c.id === f.cat)).join(''); };
+
+        /* em qual fatura/mês a compra no cartão vai cair, conforme o dia da compra e o fechamento do cartão */
+        function fatura() {
+          const a = S.conta(f.conta), data = $('#fData', root).value;
+          const show = f.tipo === 'despesa' && a && a.tipo === 'credito' && C.isValidISO(data);
+          $('#fFatWrap', root).hidden = !show;
+          if (!show) return;
+          const inv = C.invoiceFor(a, data);
+          const quando = inv.delta <= 0 ? 'vem neste mês' : inv.delta === 1 ? 'vem no mês seguinte' : 'vem daqui a ' + inv.delta + ' meses';
+          let txt = 'Compra em ' + C.fmtShort(data) + ' (fechamento dia ' + (a.dia_fechamento || '?') + ') → entra na fatura que fecha ' + C.fmtShort(inv.end) + ' e vence ' + C.fmtDate(inv.due) + ': ' + quando + ' (' + C.monthLabel(inv.dueMonth) + ').';
+          if (f.parcelas > 1) txt += ' Última parcela na fatura de ' + C.monthLabel(C.invoiceFor(a, C.addMonths(data, f.parcelas - 1)).dueMonth) + '.';
+          $('#fFatura', root).textContent = txt;
+        }
 
         /* compra com juros (lançamento novo): valor de cada parcela informado à mão */
         const man = $('#fManual', root), sw = $('#fSwitch', root), rowsBox = $('#fRows', root);
@@ -746,6 +782,7 @@
         sw.addEventListener('click', () => setManual(!f.manual));
         moneyField($('#fAll', root), 0, (c) => { f.valores = Array(f.parcelas).fill(c); drawRows(); sync(); });
         $('#fData', root).addEventListener('change', () => { if (f.manual) drawRows(); });
+        $('#fData', root).addEventListener('input', fatura);
 
         if (grupo) {
           const tot = $('#fTotal', root), hint = $('#fTotalHint', root);
