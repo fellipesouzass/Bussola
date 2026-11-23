@@ -82,6 +82,34 @@ test('a data da compra define em que fatura/mês ela vem (fecha dia 10, vence di
   assert.equal(C.invoiceFor(c2, '2026-12-26').delta, 2);
 });
 
+test('compra no cartão pesa no mês em que a fatura vence (caso Guanabara)', () => {
+  const nubank = { id: 'nu', tipo: 'credito', dia_fechamento: 8, dia_vencimento: 18 };
+  const pix = { id: 'px', tipo: 'pix' };
+  const guanabara = tx({ conta_id: 'nu', data: '2026-11-13', valor: 5546, categoria_id: 'a' }); // fecha 08/12, vence 18/12
+  const antes = tx({ conta_id: 'nu', data: '2026-11-05', valor: 1000, categoria_id: 'a' });    // fecha 08/11, vence 18/11
+  const pixTx = tx({ conta_id: 'px', data: '2026-11-13', valor: 700, categoria_id: 'a' });
+  const txs = C.annotateCash([guanabara, antes, pixTx], [nubank, pix]);
+  const g = txs[0];
+  assert.deepEqual([g.mes, g.dataCaixa, g.cartao, g.data], ['2026-12', '2026-12-18', true, '2026-11-13']); // data da compra preservada
+  assert.deepEqual([txs[1].mes, txs[2].mes, !!txs[2].cartao], ['2026-11', '2026-11', false]);
+  // novembro: só a compra de 05/11 (vence em nov) e o Pix; dezembro: o Guanabara
+  assert.equal(C.summary(txs, '2026-11').despesas, 1000 + 700);
+  assert.equal(C.summary(txs, '2026-12').despesas, 5546);
+  assert.deepEqual(C.spentByCategory(txs, '2026-12'), { a: 5546 });
+  assert.equal(C.inMonth(txs, '2026-12').length, 1);
+  // projeção: a fatura que vence no mês entra como valor conhecido (fora do ritmo diário)
+  const p = C.projection(txs, [], '2026-12', '2026-12-01', 0);
+  assert.equal(p.cartao, 5546);
+  assert.equal(p.ritmo, 0);
+  assert.equal(p.projecao, 5546);
+  const pNov = C.projection(txs, [], '2026-11', '2026-11-20', 0);
+  assert.equal(pNov.cartao, 1000);
+  assert.equal(pNov.ritmo, Math.round((700 / 20) * 30));
+  // parcelas: cada uma na fatura do seu mês
+  const parc = C.annotateCash(C.buildInstallments({ tipo: 'despesa', data: '2026-11-13', categoria_id: 'a', conta_id: 'nu' }, 30000, 3, id), [nubank]);
+  assert.deepEqual(parc.map((p) => p.mes), ['2026-12', '2027-01', '2027-02']);
+});
+
 test('fatura estimada soma só o ciclo correto', () => {
   const conta = { id: 'cc', tipo: 'credito', dia_fechamento: 10, dia_vencimento: 17 };
   const txs = [

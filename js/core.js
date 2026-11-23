@@ -230,12 +230,33 @@
 
   /* --------------------------------------------------------- resumo e orçamento */
 
-  const inMonth = (txs, mk) => txs.filter((t) => t.data.slice(0, 7) === mk);
+  /**
+   * Mês em que o lançamento "pesa" no caixa. Compras no cartão de crédito contam no mês em que a fatura VENCE
+   * (campo `mes`, calculado em runtime pelo store a partir da data da compra e do fechamento do cartão); as demais, no mês da data.
+   */
+  const mesOf = (t) => t.mes || t.data.slice(0, 7);
+
+  /**
+   * Visão de caixa: devolve cópias dos lançamentos com `mes` (mês em que pesam), `dataCaixa` (dia em que saem do bolso)
+   * e `cartao` (true para lançamentos no cartão de crédito). Cartão → vencimento da fatura em que a compra caiu;
+   * demais contas → a própria data. A data original da compra (`data`) é preservada.
+   */
+  function annotateCash(txs, contas) {
+    const byId = {};
+    for (const c of contas) byId[c.id] = c;
+    return txs.map((t) => {
+      const c = byId[t.conta_id];
+      if (c && c.tipo === 'credito') { const inv = invoiceFor(c, t.data); return { ...t, cartao: true, mes: inv.dueMonth, dataCaixa: inv.due }; }
+      return { ...t, mes: t.data.slice(0, 7), dataCaixa: t.data };
+    });
+  }
+
+  const inMonth = (txs, mk) => txs.filter((t) => mesOf(t) === mk);
 
   function summary(txs, mk) {
     let receitas = 0, despesas = 0;
     for (const t of txs) {
-      if (t.data.slice(0, 7) !== mk) continue;
+      if (mesOf(t) !== mk) continue;
       if (t.tipo === 'receita') receitas += t.valor; else despesas += t.valor;
     }
     return { receitas, despesas, saldo: receitas - despesas };
@@ -244,7 +265,7 @@
   function spentByCategory(txs, mk) {
     const out = {};
     for (const t of txs) {
-      if (t.tipo !== 'despesa' || t.data.slice(0, 7) !== mk) continue;
+      if (t.tipo !== 'despesa' || mesOf(t) !== mk) continue;
       out[t.categoria_id] = (out[t.categoria_id] || 0) + t.valor;
     }
     return out;
@@ -333,9 +354,14 @@
     const cur = monthKey(today);
     const dayN = mk === cur ? parseISO(today).d : mk < cur ? dim : 0;
     const limit = mk === cur ? today : mk < cur ? isoOf(y, m, dim) : '';
-    let atual = 0, avulsoAteHoje = 0, fixasPagas = 0, futuros = 0;
+    let atual = 0, avulsoAteHoje = 0, fixasPagas = 0, futuros = 0, cartao = 0;
     for (const t of txs) {
-      if (t.tipo !== 'despesa' || t.data.slice(0, 7) !== mk) continue;
+      if (t.tipo !== 'despesa' || mesOf(t) !== mk) continue;
+      if (t.cartao) { // fatura do cartão que vence neste mês: valor já conhecido, não entra no ritmo diário
+        cartao += t.valor;
+        if (!limit || t.data <= limit) atual += t.valor;
+        continue;
+      }
       if (limit && t.data <= limit) {
         atual += t.valor;
         if (t.conta_fixa_id) fixasPagas += t.valor; else avulsoAteHoje += t.valor;
@@ -346,9 +372,9 @@
       for (const o of fixedOccurrences(fixas, mk, txs, today)) if (o.status !== 'paga' && !isIncome(o.cf)) fixasPendentes += o.cf.valor;
     }
     const ritmo = dayN > 0 ? Math.round((avulsoAteHoje / dayN) * dim) : 0;
-    const projecao = ritmo + fixasPagas + fixasPendentes + futuros;
+    const projecao = ritmo + fixasPagas + fixasPendentes + futuros + cartao;
     return {
-      projecao, atual, ritmo, fixasPagas, fixasPendentes, futuros, dayN, dim,
+      projecao, atual, ritmo, fixasPagas, fixasPendentes, futuros, cartao, dayN, dim,
       orcamento: orcamento || 0,
       diferenca: orcamento ? orcamento - projecao : null,
       level: budgetLevel(projecao, orcamento),
@@ -523,7 +549,7 @@
     splitInstallments, buildInstallments, invoiceCycle, invoiceTotal, creditCommitted, accountBalance,
     invoiceIsPaid, invoiceStatus, invoiceList, isPaidCharge, invoiceFor,
     summary, inMonth, spentByCategory, budgetLevel, budgetPercent, budgetTotal, budgetRows,
-    fixedDueDate, fixedStatus, fixedOccurrences, occursIn, isIncome, pendingIncome, dueRecurring, projection, compareMonths, riskRanking,
+    mesOf, annotateCash, fixedDueDate, fixedStatus, fixedOccurrences, occursIn, isIncome, pendingIncome, dueRecurring, projection, compareMonths, riskRanking,
     normText, parseCSV, detectMapping, parseDate, importHash, buildImport, toCSV, compareVersions,
   };
 });

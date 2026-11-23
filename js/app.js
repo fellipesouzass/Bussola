@@ -52,7 +52,8 @@
 
   const cat = (id) => S.categoria(id) || { id: '', nome: 'Sem categoria', cor: '#7a8599', kind: 'despesa' };
   const conta = (id) => S.conta(id) || { id: '', nome: 'Sem conta', tipo: 'pix' };
-  const D = () => S.data();
+  /** Dados para exibição: lançamentos na visão de caixa (compra no cartão pesa no mês do vencimento da fatura; `data` segue sendo o dia da compra). */
+  const D = () => ({ ...S.data(), transacoes: S.txs() });
   const today = () => C.todayISO();
   const byDateDesc = (a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0);
 
@@ -227,7 +228,7 @@
     } else verdict = '<div class="verdict none">' + ico('info') + '<span>Defina o orçamento das categorias para comparar a projeção.</span></div>';
 
     const lines = (mk >= cur ? [
-      ['Gastos avulsos no ritmo atual', p.ritmo], ['Contas fixas já pagas', p.fixasPagas], ['Contas fixas a pagar', p.fixasPendentes], ['Parcelas e lançamentos futuros', p.futuros],
+      ['Gastos avulsos no ritmo atual', p.ritmo], ['Contas fixas já pagas', p.fixasPagas], ['Contas fixas a pagar', p.fixasPendentes], ['Faturas de cartão que vencem no mês', p.cartao], ['Lançamentos futuros', p.futuros],
     ] : [['Total gasto no mês', p.atual]]).map(([l, v]) => '<div><span>' + l + '</span><span class="money">' + R(v) + '</span></div>').join('');
 
     const ang = -90 + Math.min(1.25, p.ratio) / 1.25 * 180;
@@ -282,7 +283,7 @@
   /* ---------------------------------------------------------------- Transações */
   function txRow(t) {
     const c = cat(t.categoria_id), a = conta(t.conta_id);
-    const meta = [c.nome, a.nome, t.total_parcelas ? 'parcela ' + t.parcela_atual + '/' + t.total_parcelas : '', t.conta_fixa_id ? 'conta fixa' : '', t.data > today() ? 'agendada' : '', C.isPaidCharge(t, a, today()) ? 'fatura paga' : (a.tipo === 'credito' && t.tipo === 'despesa' ? 'fatura ' + C.monthShort(C.invoiceFor(a, t.data).dueMonth) : '')].filter(Boolean).join(' · ');
+    const meta = [c.nome, a.nome, t.total_parcelas ? 'parcela ' + t.parcela_atual + '/' + t.total_parcelas : '', t.conta_fixa_id ? 'conta fixa' : '', t.data > today() ? 'agendada' : '', t.cartao ? 'compra em ' + C.fmtShort(t.data) : '', t.cartao ? (C.isPaidCharge(t, a, today()) ? 'fatura paga' : 'fatura vence ' + C.fmtShort(t.dataCaixa)) : ''].filter(Boolean).join(' · ');
     return '<div class="row" role="button" tabindex="0" data-act="tx-edit" data-id="' + esc(t.id) + '" style="--c:' + safeColor(c.cor) + '">' +
       '<span class="row-ico"><b>' + esc((c.nome || '?').trim().charAt(0).toUpperCase()) + '</b></span>' +
       '<div class="row-main"><div class="row-title">' + esc(t.descricao || c.nome) + '</div><div class="row-meta">' + esc(meta) + '</div></div>' +
@@ -341,8 +342,8 @@
       '</div>' + (ui.q ? '<p class="hint" style="margin-top:10px">Buscando em todos os meses — ' + list.length + ' resultado' + (list.length === 1 ? '' : 's') + '.</p>' : '');
     let html = '', last = '';
     const dayTotals = {};
-    list.forEach((t) => { dayTotals[t.data] = (dayTotals[t.data] || 0) + (t.tipo === 'receita' ? t.valor : -t.valor); });
-    const itens = [...list.map((t) => ({ data: t.data, t })), ...previstas.map((o) => ({ data: o.due, o }))]
+    list.forEach((t) => { const k = t.dataCaixa || t.data; dayTotals[k] = (dayTotals[k] || 0) + (t.tipo === 'receita' ? t.valor : -t.valor); });
+    const itens = [...list.map((t) => ({ data: t.dataCaixa || t.data, t })), ...previstas.map((o) => ({ data: o.due, o }))]
       .sort((x, y) => (x.data < y.data ? 1 : x.data > y.data ? -1 : (x.o ? 1 : 0) - (y.o ? 1 : 0)));
     itens.forEach((it) => {
       if (it.data !== last) { last = it.data; html += '<div class="day-head"><span>' + esc(C.dayHeading(it.data, hoje)) + ' · ' + C.fmtShort(it.data) + '</span><span class="money">' + (dayTotals[it.data] != null ? R(dayTotals[it.data], { sign: true }) : '') + '</span></div>'; }

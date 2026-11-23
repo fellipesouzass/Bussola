@@ -70,6 +70,7 @@
   }
 
   function load() {
+    cashMemo = null;
     let raw = null;
     try { raw = localStorage.getItem(KEY); } catch (e) { lastError = e; }
     if (raw) {
@@ -88,8 +89,17 @@
 
   const notify = () => subs.forEach((fn) => { try { fn(state); } catch (e) { console.error(e); } });
 
+  /** Lançamentos na visão de caixa (compras no cartão pesam no mês do vencimento da fatura). Memoizado até o próximo commit/carga. */
+  let cashMemo = null;
+  function txs() {
+    if (!cashMemo) cashMemo = C.annotateCash(state.transacoes, state.contas);
+    return cashMemo;
+  }
+
   function commit(fn) {
+    cashMemo = null;
     const r = fn(state);
+    cashMemo = null;
     save();
     notify();
     return r;
@@ -402,7 +412,7 @@
 
   root.BussolaStore = {
     COLORS, SCHEMA, uid,
-    data: () => state,
+    data: () => state, txs,
     subscribe: (fn) => { subs.add(fn); return () => subs.delete(fn); },
     error: () => lastError,
     settings, setSettings, conta, categoria,
