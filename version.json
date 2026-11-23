@@ -1,7 +1,7 @@
 {
-  "version": "1.7.0",
+  "version": "1.7.1",
   "date": "2026-11-23",
   "notes": [
-    "Transações mostra os gastos fixos do mês; ao lançar no cartão o app calcula em qual fatura/mês a compra vem, pelo dia da compra e o fechamento"
+    "Transações: as contas fixas a pagar aparecem junto com as demais despesas, na data de vencimento (sem cartão separado)"
   ]
 }

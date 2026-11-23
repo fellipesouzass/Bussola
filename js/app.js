@@ -290,13 +290,26 @@
       '<span class="row-act"><button class="icon-btn" type="button" data-act="tx-del" data-id="' + esc(t.id) + '" aria-label="Excluir lançamento">' + ico('trash') + '</button></span></div>';
   }
 
+  /** Conta fixa / receita recorrente ainda não lançada, mostrada na lista junto com os demais lançamentos. */
+  function fixaTxRow(o) {
+    const inc = C.isIncome(o.cf), c = cat(o.cf.categoria_id), mk = ui.month;
+    const pl = (n) => n + (n === 1 ? ' dia' : ' dias');
+    const quando = o.status === 'vencida' ? (inc ? 'atrasada há ' : 'vencida há ') + pl(o.dias) : o.dias === 0 ? (inc ? 'prevista para hoje' : 'vence hoje') : (inc ? 'prevista em ' : 'vence em ') + pl(o.dias);
+    const meta = [c.nome, inc ? 'receita recorrente' : 'conta fixa', quando].join(' · ');
+    return '<div class="row pending" role="button" tabindex="0" data-act="fix-edit" data-id="' + esc(o.cf.id) + '" style="--c:' + safeColor(c.cor) + '">' +
+      '<span class="row-ico"><b>' + esc((c.nome || '?').trim().charAt(0).toUpperCase()) + '</b></span>' +
+      '<div class="row-main"><div class="row-title">' + esc(o.cf.nome) + '</div><div class="row-meta">' + esc(meta) + '</div></div>' +
+      '<span class="badge ' + o.status + '">' + (inc ? (o.status === 'vencida' ? 'Atrasada' : 'A receber') : (o.status === 'vencida' ? 'Vencida' : 'A vencer')) + '</span>' +
+      '<span class="row-amt money ' + (inc ? 'in' : '') + '">' + (inc ? '+' : '-') + R(o.cf.valor) + '</span>' +
+      '<button class="btn btn-sm btn-primary" data-act="fix-pay" data-id="' + esc(o.cf.id) + '" data-mk="' + mk + '">' + ico('check') + (inc ? 'Recebi' : 'Pagar') + '</button></div>';
+  }
+
   function pageTransacoes() {
     const d = D();
     return '<div class="toolbar st"><div class="search">' + ico('search') + '<input class="input" id="q" type="search" placeholder="Buscar por descrição, categoria ou conta…" value="' + esc(ui.q) + '" aria-label="Buscar"></div>' +
       '<select class="select" id="fConta" style="width:auto;min-width:150px" aria-label="Filtrar por conta"><option value="todas">Todas as contas</option>' + d.contas.map((c) => '<option value="' + esc(c.id) + '"' + (ui.fConta === c.id ? ' selected' : '') + '>' + esc(c.nome) + '</option>').join('') + '</select>' +
       segHTML('', [['todos', 'Todos'], ['despesa', 'Despesas'], ['receita', 'Receitas']], ui.txTipo, 'txTipo') +
       '<button class="btn" data-act="export-view">' + ico('download') + 'Exportar CSV</button></div>' +
-      '<div id="txFixas" class="st"></div>' +
       '<div id="txSum" class="st" style="margin-bottom:16px"></div>' +
       '<section class="card st"><div id="txList" class="list"></div></section>';
   }
@@ -309,27 +322,7 @@
     if (q) list = list.filter((t) => C.normText([t.descricao, cat(t.categoria_id).nome, conta(t.conta_id).nome, R(t.valor)].join(' ')).includes(q));
     return list.slice().sort(byDateDesc);
   }
-  /** Contas fixas e receitas recorrentes do mês, no topo das transações (visão dos gastos fixos mensais). */
-  function renderTxFixas() {
-    const box = $('#txFixas');
-    if (!box) return;
-    const d = D(), mk = ui.month, hoje = today();
-    const occ = C.fixedOccurrences(d.contas_fixas, mk, d.transacoes, hoje);
-    if (ui.q || ui.fConta !== 'todas' || !occ.length) {
-      box.innerHTML = ui.q || ui.fConta !== 'todas' ? '' : '<section class="card" style="margin-bottom:16px"><div class="card-head" style="margin:0"><h2>Gastos fixos de ' + esc(C.monthLabel(mk).toLowerCase()) + '</h2><button class="link" data-act="goto-fixas">Cadastrar</button></div><p class="hint" style="margin-top:8px">Nenhuma conta fixa neste mês. Cadastre aluguel, internet, assinaturas… e acompanhe aqui.</p></section>';
-      return;
-    }
-    const desp = occ.filter((o) => !C.isIncome(o.cf)), inc = occ.filter((o) => C.isIncome(o.cf));
-    const soma = (l, f) => l.filter(f).reduce((s, o) => s + o.cf.valor, 0);
-    const total = soma(desp, () => true), pago = soma(desp, (o) => o.status === 'paga');
-    const resumo = desp.length ? 'Gastos fixos: <b class="money">' + R(total) + '</b> no mês · pago ' + R(pago) + ' · falta ' + R(total - pago) : '';
-    const rec = inc.length ? (resumo ? ' · ' : '') + 'receitas recorrentes: ' + R(soma(inc, () => true)) : '';
-    box.innerHTML = '<section class="card" style="margin-bottom:16px"><div class="card-head"><h2>Gastos fixos de ' + esc(C.monthLabel(mk).toLowerCase()) + '</h2><button class="link" data-act="goto-fixas">Gerenciar</button></div>' +
-      '<p class="hint" style="margin-bottom:8px">' + resumo + rec + '</p><div class="list">' + occ.map((o) => fixRow(o, mk)).join('') + '</div></section>';
-  }
-
   function renderTxList(animate, flashId) {
-    renderTxFixas();
     const list = filteredTx(), hoje = today();
     let rec = 0, desp = 0;
     list.forEach((t) => { if (t.tipo === 'receita') rec += t.valor; else desp += t.valor; });
@@ -339,10 +332,20 @@
     let html = '', last = '';
     const dayTotals = {};
     list.forEach((t) => { dayTotals[t.data] = (dayTotals[t.data] || 0) + (t.tipo === 'receita' ? t.valor : -t.valor); });
-    list.forEach((t) => {
-      if (t.data !== last) { last = t.data; html += '<div class="day-head"><span>' + esc(C.dayHeading(t.data, hoje)) + ' · ' + C.fmtShort(t.data) + '</span><span class="money">' + R(dayTotals[t.data], { sign: true }) + '</span></div>'; }
-      html += txRow(t);
+    // contas fixas / receitas recorrentes ainda não lançadas do mês: aparecem junto, na data de vencimento
+    const d0 = D();
+    const mostraFixas = !ui.q && ui.fConta === 'todas';
+    const previstas = mostraFixas ? C.fixedOccurrences(d0.contas_fixas, ui.month, d0.transacoes, hoje)
+      .filter((o) => o.status !== 'paga' && (ui.txTipo === 'todos' || ui.txTipo === (C.isIncome(o.cf) ? 'receita' : 'despesa'))) : [];
+    let aPagar = 0;
+    previstas.forEach((o) => { if (!C.isIncome(o.cf)) aPagar += o.cf.valor; });
+    const itens = [...list.map((t) => ({ data: t.data, t })), ...previstas.map((o) => ({ data: o.due, o }))]
+      .sort((x, y) => (x.data < y.data ? 1 : x.data > y.data ? -1 : (x.o ? 1 : 0) - (y.o ? 1 : 0)));
+    itens.forEach((it) => {
+      if (it.data !== last) { last = it.data; html += '<div class="day-head"><span>' + esc(C.dayHeading(it.data, hoje)) + ' · ' + C.fmtShort(it.data) + '</span><span class="money">' + (dayTotals[it.data] != null ? R(dayTotals[it.data], { sign: true }) : '') + '</span></div>'; }
+      html += it.t ? txRow(it.t) : fixaTxRow(it.o);
     });
+    if (aPagar > 0) $('#txSum').insertAdjacentHTML('beforeend', '<p class="hint" style="margin-top:10px">Além dos lançamentos acima, ainda há <b class="money">' + R(aPagar) + '</b> em contas fixas a pagar neste mês (aparecem na lista, na data de vencimento).</p>');
     const box = $('#txList');
     box.innerHTML = html || '<div class="empty">' + ico('search') + '<b>' + (ui.q ? 'Nenhum resultado' : 'Nenhum lançamento neste mês') + '</b>' + (ui.q ? 'Tente outra busca.' : 'Use o botão + para lançar uma receita ou despesa.') + '</div>';
     if (animate && !reduce) $$('.row', box).slice(0, 14).forEach((r, i) => { r.style.animation = 'rise .5s var(--ease) both'; r.style.animationDelay = i * 28 + 'ms'; });

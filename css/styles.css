@@ -455,3 +455,8 @@ table.prev { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 
 /* Receitas recorrentes */
 .chip-stat.wait i { background: #f6c96f; }
+
+/* Conta fixa prevista dentro da lista de lançamentos */
+.row.pending { background: color-mix(in srgb, var(--blue) 5%, transparent); }
+.row.pending .row-ico { border: 1.5px dashed color-mix(in srgb, var(--c, var(--blue)) 55%, transparent); background: transparent; }
+@media (max-width: 520px) { .row.pending .badge { display: none; } }
