@@ -324,28 +324,30 @@
   }
   function renderTxList(animate, flashId) {
     const list = filteredTx(), hoje = today();
-    let rec = 0, desp = 0;
-    list.forEach((t) => { if (t.tipo === 'receita') rec += t.valor; else desp += t.valor; });
-    $('#txSum').innerHTML = '<div class="grid g3">' +
-      [['Receitas', rec, 'pos'], ['Despesas', desp, 'neg'], ['Saldo', rec - desp, rec - desp < 0 ? 'neg' : 'pos']].map(([l, v, k]) => '<div class="card stat" style="padding:14px 16px"><div class="eyebrow">' + l + '</div><div class="stat-value money ' + k + '" style="font-size:22px">' + R(v) + '</div></div>').join('') +
-      '</div>' + (ui.q ? '<p class="hint" style="margin-top:10px">Buscando em todos os meses — ' + list.length + ' resultado' + (list.length === 1 ? '' : 's') + '.</p>' : '');
-    let html = '', last = '';
-    const dayTotals = {};
-    list.forEach((t) => { dayTotals[t.data] = (dayTotals[t.data] || 0) + (t.tipo === 'receita' ? t.valor : -t.valor); });
-    // contas fixas / receitas recorrentes ainda não lançadas do mês: aparecem junto, na data de vencimento
+    // contas fixas / receitas recorrentes ainda não lançadas do mês: aparecem na lista (data de vencimento) e entram nos totais
     const d0 = D();
     const mostraFixas = !ui.q && ui.fConta === 'todas';
     const previstas = mostraFixas ? C.fixedOccurrences(d0.contas_fixas, ui.month, d0.transacoes, hoje)
       .filter((o) => o.status !== 'paga' && (ui.txTipo === 'todos' || ui.txTipo === (C.isIncome(o.cf) ? 'receita' : 'despesa'))) : [];
-    let aPagar = 0;
-    previstas.forEach((o) => { if (!C.isIncome(o.cf)) aPagar += o.cf.valor; });
+    let rec = 0, desp = 0, fixDesp = 0, fixRec = 0;
+    list.forEach((t) => { if (t.tipo === 'receita') rec += t.valor; else desp += t.valor; });
+    previstas.forEach((o) => { if (C.isIncome(o.cf)) fixRec += o.cf.valor; else fixDesp += o.cf.valor; });
+    rec += fixRec; desp += fixDesp;
+    const stat = (l, v, k, sub) => '<div class="card stat" style="padding:14px 16px"><div class="eyebrow">' + l + '</div><div class="stat-value money ' + k + '" style="font-size:22px">' + R(v) + '</div>' + (sub ? '<div class="stat-sub">' + sub + '</div>' : '') + '</div>';
+    $('#txSum').innerHTML = '<div class="grid g3">' +
+      stat('Receitas', rec, 'pos', fixRec ? 'inclui ' + R(fixRec) + ' a receber (recorrentes)' : '') +
+      stat('Despesas', desp, 'neg', fixDesp ? 'inclui ' + R(fixDesp) + ' em contas fixas a pagar' : '') +
+      stat('Saldo', rec - desp, rec - desp < 0 ? 'neg' : 'pos', fixDesp || fixRec ? 'considerando as fixas do mês' : '') +
+      '</div>' + (ui.q ? '<p class="hint" style="margin-top:10px">Buscando em todos os meses — ' + list.length + ' resultado' + (list.length === 1 ? '' : 's') + '.</p>' : '');
+    let html = '', last = '';
+    const dayTotals = {};
+    list.forEach((t) => { dayTotals[t.data] = (dayTotals[t.data] || 0) + (t.tipo === 'receita' ? t.valor : -t.valor); });
     const itens = [...list.map((t) => ({ data: t.data, t })), ...previstas.map((o) => ({ data: o.due, o }))]
       .sort((x, y) => (x.data < y.data ? 1 : x.data > y.data ? -1 : (x.o ? 1 : 0) - (y.o ? 1 : 0)));
     itens.forEach((it) => {
       if (it.data !== last) { last = it.data; html += '<div class="day-head"><span>' + esc(C.dayHeading(it.data, hoje)) + ' · ' + C.fmtShort(it.data) + '</span><span class="money">' + (dayTotals[it.data] != null ? R(dayTotals[it.data], { sign: true }) : '') + '</span></div>'; }
       html += it.t ? txRow(it.t) : fixaTxRow(it.o);
     });
-    if (aPagar > 0) $('#txSum').insertAdjacentHTML('beforeend', '<p class="hint" style="margin-top:10px">Além dos lançamentos acima, ainda há <b class="money">' + R(aPagar) + '</b> em contas fixas a pagar neste mês (aparecem na lista, na data de vencimento).</p>');
     const box = $('#txList');
     box.innerHTML = html || '<div class="empty">' + ico('search') + '<b>' + (ui.q ? 'Nenhum resultado' : 'Nenhum lançamento neste mês') + '</b>' + (ui.q ? 'Tente outra busca.' : 'Use o botão + para lançar uma receita ou despesa.') + '</div>';
     if (animate && !reduce) $$('.row', box).slice(0, 14).forEach((r, i) => { r.style.animation = 'rise .5s var(--ease) both'; r.style.animationDelay = i * 28 + 'ms'; });

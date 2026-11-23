@@ -1,7 +1,7 @@
 {
-  "version": "1.7.1",
+  "version": "1.7.2",
   "date": "2026-11-23",
   "notes": [
-    "Transações: as contas fixas a pagar aparecem junto com as demais despesas, na data de vencimento (sem cartão separado)"
+    "Transações: o total de Despesas passa a incluir as contas fixas a pagar do mês"
   ]
 }
