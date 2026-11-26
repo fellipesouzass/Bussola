@@ -100,6 +100,46 @@
 
   /* ------------------------------------------------------------------ diálogo */
   let dlgResolve = null;
+
+  /* Celular: com o diálogo aberto a página de fundo fica TRAVADA (no iOS, overflow:hidden sozinho não basta: o gesto vaza para a página). */
+  const touchLike = () => matchMedia('(max-width: 860px), (pointer: coarse)').matches;
+  let lockY = null;
+  function lockScroll() {
+    if (lockY !== null || !touchLike()) return;
+    lockY = window.scrollY;
+    document.body.style.top = -lockY + 'px';
+    document.body.classList.add('scroll-locked');
+  }
+  function unlockScroll() {
+    if (lockY === null) return;
+    const y = lockY; lockY = null;
+    document.body.classList.remove('scroll-locked');
+    document.body.style.top = '';
+    window.scrollTo(0, y); // volta exatamente para onde a página estava
+  }
+  // área realmente visível (muda quando o teclado sobe): a folha acompanha, para não ficar escondida atrás dele
+  function syncViewport() {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    dlg.style.setProperty('--vvh', vv.height + 'px');
+    dlg.style.setProperty('--vvt', vv.offsetTop + 'px');
+  }
+  if (window.visualViewport) { window.visualViewport.addEventListener('resize', syncViewport); window.visualViewport.addEventListener('scroll', syncViewport); }
+  // gestos: só o conteúdo da folha rola; fora dela, ou no começo/fim da rolagem, o toque é bloqueado e não passa para a página
+  let touchY = 0;
+  dlg.addEventListener('touchstart', (e) => { touchY = e.touches[0].clientY; }, { passive: true });
+  dlg.addEventListener('touchmove', (e) => {
+    const card = e.target.closest ? e.target.closest('.dlg-card') : null;
+    if (!card) { e.preventDefault(); return; }
+    let sc = e.target;
+    while (sc && sc !== card && !(sc.scrollHeight > sc.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
+    sc = sc || card;
+    const dy = e.touches[0].clientY - touchY;
+    const noTopo = sc.scrollTop <= 0, noFim = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 1;
+    if ((noTopo && dy > 0) || (noFim && dy < 0)) e.preventDefault();
+  }, { passive: false });
+  dlg.addEventListener('close', unlockScroll);
+
   function openDialog(html, o) {
     o = o || {};
     if (dlgResolve) { const r = dlgResolve; dlgResolve = null; r(undefined); }
@@ -107,13 +147,15 @@
       dlgResolve = resolve;
       dlg.className = 'dlg' + (o.wide ? ' wide' : '');
       dlg.innerHTML = html;
-      if (!dlg.open) dlg.showModal();
+      const coarse = matchMedia('(pointer: coarse)').matches;
+      if (coarse) $$('[autofocus]', dlg).forEach((el) => el.removeAttribute('autofocus')); // no celular o teclado só abre quando você toca num campo
+      if (!dlg.open) { lockScroll(); syncViewport(); dlg.showModal(); }
       void dlg.offsetWidth; // força o estilo inicial para a transição rodar
       dlg.classList.add('open');
       positionThumbs(dlg);
       if (o.mount) o.mount(dlg);
       const f = $('[autofocus]', dlg) || $('input:not([type=hidden]), select', dlg);
-      if (f && !matchMedia('(pointer: coarse)').matches) setTimeout(() => f.focus({ preventScroll: true }), 60);
+      if (f && !coarse) setTimeout(() => f.focus({ preventScroll: true }), 60);
     });
   }
   function closeDialog(v) {

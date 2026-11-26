@@ -1,7 +1,7 @@
 {
-  "version": "1.8.0",
-  "date": "2026-11-23",
+  "version": "1.8.1",
+  "date": "2026-11-26",
   "notes": [
-    "Compras no cartão passam a contar no mês em que a fatura vence (lista, totais, Início, Análise e orçamento); a data da compra continua visível"
+    "Celular: com a janela de lançamento aberta a tela de fundo fica travada, só o formulário rola e a folha acompanha o teclado"
   ]
 }
