@@ -74,3 +74,11 @@ match /usuarios/{uid} { allow read, write: if request.auth != null && request.au
 ```
 
 Código em `js/cloud.js` (testado em `tests/cloud.test.js` com um Firebase falso).
+
+## Fatura do mês em PDF
+
+Em **Transações › Fatura PDF** o app gera, para o mês selecionado, um PDF no layout do modelo "Invoice Template" (cabeçalho, cartões *Emitido por* / *Cobrado de*, tabela com todos os gastos, resumo por categoria, totais e rodapé). Compras no cartão entram no mês de vencimento da fatura; contas fixas a pagar entram na data de vencimento (opcional). Os dados dos cartões são lembrados para a próxima vez.
+
+- Gerador sem dependências: `js/pdf.js` (texto, formas, páginas) e `js/invoice.js` (layout).
+- Para ajustar o visual: cores em `THEME` e medidas em `LAYOUT`, no topo de `js/invoice.js`.
+- Para ver o resultado sem abrir o app: `node scripts/sample-invoice.js saida.pdf 40`.

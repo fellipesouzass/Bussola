@@ -534,6 +534,60 @@
     return [head, ...linhas].map((l) => l.map(csvCell).join(';')).join('\r\n');
   }
 
+  /* ------------------------------------------------------------ fatura em PDF */
+
+  /**
+   * Dados da "fatura do mês" (modelo em PDF): todos os gastos que pesam no mês `mk` (visão de caixa: compras no cartão entram
+   * no mês do vencimento da fatura), mais as contas fixas ainda a pagar. `txs` deve vir de annotateCash().
+   * opts: { incluirFixas = true, incluirReceitas = false }
+   */
+  function invoiceModel(txs, fixas, contas, cats, mk, today, opts) {
+    const o = Object.assign({ incluirFixas: true, incluirReceitas: false }, opts || {});
+    const conta = {}, cat = {};
+    contas.forEach((c) => { conta[c.id] = c; });
+    cats.forEach((c) => { cat[c.id] = c; });
+    const nomeCat = (id) => (cat[id] ? cat[id].nome : 'Sem categoria');
+    const linhas = [];
+    for (const t of txs) {
+      if (mesOf(t) !== mk) continue;
+      if (t.tipo === 'receita' && !o.incluirReceitas) continue;
+      const sub = [nomeCat(t.categoria_id), conta[t.conta_id] ? conta[t.conta_id].nome : 'Sem conta'];
+      if (t.cartao) sub.push('compra em ' + fmtShort(t.data));
+      if (t.conta_fixa_id) sub.push('conta fixa');
+      linhas.push({
+        data: t.dataCaixa || t.data, titulo: t.descricao || nomeCat(t.categoria_id), sub,
+        parcela: t.total_parcelas ? t.parcela_atual + '/' + t.total_parcelas : '', valor: t.valor,
+        tipo: t.tipo, origem: 'lancado', categoria: nomeCat(t.categoria_id),
+      });
+    }
+    if (o.incluirFixas) {
+      for (const f of fixedOccurrences(fixas, mk, txs, today)) {
+        if (f.status === 'paga' || isIncome(f.cf)) continue;
+        linhas.push({
+          data: f.due, titulo: f.cf.nome, sub: [nomeCat(f.cf.categoria_id), 'conta fixa a pagar'], parcela: '', valor: f.cf.valor,
+          tipo: 'despesa', origem: 'fixa', categoria: nomeCat(f.cf.categoria_id),
+        });
+      }
+    }
+    linhas.sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : a.titulo.localeCompare(b.titulo, 'pt-BR')));
+    let lancado = 0, fixasAPagar = 0, receitas = 0;
+    const porCat = {};
+    for (const l of linhas) {
+      if (l.tipo === 'receita') { receitas += l.valor; continue; }
+      if (l.origem === 'fixa') fixasAPagar += l.valor; else lancado += l.valor;
+      porCat[l.categoria] = (porCat[l.categoria] || 0) + l.valor;
+    }
+    const total = lancado + fixasAPagar;
+    const porCategoria = Object.entries(porCat).map(([nome, valor]) => ({ nome, valor, pct: total > 0 ? Math.round((valor / total) * 100) : 0 })).sort((a, b) => b.valor - a.valor);
+    const [y, m] = mk.split('-').map(Number);
+    return {
+      mes: mk, mesLabel: monthLabel(mk), numero: 'BUS-' + y + String(m).padStart(2, '0'),
+      emissao: today, vencimento: isoOf(y, m, daysInMonth(y, m)),
+      linhas, porCategoria, totais: { lancado, fixasAPagar, total, receitas, saldo: receitas - total },
+      incluirReceitas: o.incluirReceitas,
+    };
+  }
+
   /* -------------------------------------------------------------------- versão */
 
   function compareVersions(a, b) {
@@ -550,6 +604,6 @@
     invoiceIsPaid, invoiceStatus, invoiceList, isPaidCharge, invoiceFor,
     summary, inMonth, spentByCategory, budgetLevel, budgetPercent, budgetTotal, budgetRows,
     mesOf, annotateCash, fixedDueDate, fixedStatus, fixedOccurrences, occursIn, isIncome, pendingIncome, dueRecurring, projection, compareMonths, riskRanking,
-    normText, parseCSV, detectMapping, parseDate, importHash, buildImport, toCSV, compareVersions,
+    invoiceModel, normText, parseCSV, detectMapping, parseDate, importHash, buildImport, toCSV, compareVersions,
   };
 });

@@ -1,7 +1,7 @@
 {
-  "version": "1.8.1",
-  "date": "2026-11-26",
+  "version": "1.9.0",
+  "date": "2026-11-28",
   "notes": [
-    "Celular: com a janela de lançamento aberta a tela de fundo fica travada, só o formulário rola e a folha acompanha o teclado"
+    "Fatura do mês em PDF: botão em Transações gera o modelo com todos os gastos do mês, em azul"
   ]
 }

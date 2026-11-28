@@ -352,7 +352,8 @@
     return '<div class="toolbar st"><div class="search">' + ico('search') + '<input class="input" id="q" type="search" placeholder="Buscar por descrição, categoria ou conta…" value="' + esc(ui.q) + '" aria-label="Buscar"></div>' +
       '<select class="select" id="fConta" style="width:auto;min-width:150px" aria-label="Filtrar por conta"><option value="todas">Todas as contas</option>' + d.contas.map((c) => '<option value="' + esc(c.id) + '"' + (ui.fConta === c.id ? ' selected' : '') + '>' + esc(c.nome) + '</option>').join('') + '</select>' +
       segHTML('', [['todos', 'Todos'], ['despesa', 'Despesas'], ['receita', 'Receitas']], ui.txTipo, 'txTipo') +
-      '<button class="btn" data-act="export-view">' + ico('download') + 'Exportar CSV</button></div>' +
+      '<button class="btn" data-act="export-view">' + ico('download') + 'Exportar CSV</button>' +
+      '<button class="btn" data-act="export-pdf">' + ico('download') + 'Fatura PDF</button></div>' +
       '<div id="txSum" class="st" style="margin-bottom:16px"></div>' +
       '<section class="card st"><div id="txList" class="list"></div></section>';
   }
@@ -1091,6 +1092,83 @@
     if (n) toast(n === 1 ? 'Receita recorrente lançada.' : n + ' receitas recorrentes lançadas.');
   }
 
+  /* ------------------------------------------------------- Fatura do mês em PDF */
+  const FATURA_PADRAO = { byNome: '', byEndereco: '', byEmail: '', byTelefone: '', toNome: '', toEndereco: '', toEmail: '', toTelefone: '', nota: '', incluirFixas: true, incluirReceitas: false };
+
+  function faturaDados(f) {
+    const mk = ui.month, d = D();
+    const model = C.invoiceModel(S.txs(), d.contas_fixas, d.contas, d.categorias, mk, today(), { incluirFixas: f.incluirFixas, incluirReceitas: f.incluirReceitas });
+    const bytes = window.BussolaInvoice.render(model, {
+      by: { nome: f.byNome, endereco: f.byEndereco, email: f.byEmail, telefone: f.byTelefone },
+      to: { nome: f.toNome, endereco: f.toEndereco, email: f.toEmail, telefone: f.toTelefone },
+      nota: f.nota,
+    });
+    return { model, bytes, nome: 'fatura-bussola-' + mk + '.pdf' };
+  }
+
+  /** modo 'ver' abre o PDF em outra aba; 'baixar' salva (no celular abre a folha de compartilhar/salvar). */
+  async function entregarPDF(bytes, nome, modo) {
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+    if (modo === 'baixar' && matchMedia('(pointer: coarse)').matches && navigator.canShare) {
+      const file = new File([blob], nome, { type: 'application/pdf' });
+      if (navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: nome }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+      }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    if (modo === 'baixar') a.download = nome; else { a.target = '_blank'; a.rel = 'noopener'; }
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
+  function openFaturaForm() {
+    if (!window.BussolaInvoice) return toast('Não consegui carregar o gerador de PDF.', { kind: 'error' });
+    const u = Cloud.user && Cloud.user();
+    const f = { ...FATURA_PADRAO, ...(S.settings().fatura || {}) };
+    if (!f.byNome && u) f.byNome = u.displayName || '';
+    if (!f.byEmail && u) f.byEmail = u.email || '';
+    const campo = (id, rot, extra) => '<div class="field"><label for="' + id + '">' + rot + '</label><input class="input" id="' + id + '" ' + (extra || '') + '></div>';
+    const body = '<form class="form" id="pdfForm" autocomplete="off">' +
+      '<p class="hint">Fatura de <b>' + esc(C.monthLabel(ui.month)) + '</b> com todos os gastos do mês no modelo em PDF. Compras no cartão entram no mês de vencimento da fatura.</p>' +
+      '<div class="field"><span class="label">Emitido por</span></div>' +
+      '<div class="grid g2" style="gap:12px;margin-top:-8px">' + campo('pBy1', 'Nome', 'maxlength="60"') + campo('pBy2', 'E-mail', 'maxlength="80" type="email"') + campo('pBy3', 'Telefone', 'maxlength="30"') + campo('pBy4', 'Endereço', 'maxlength="120"') + '</div>' +
+      '<div class="field"><span class="label">Cobrado de</span></div>' +
+      '<div class="grid g2" style="gap:12px;margin-top:-8px">' + campo('pTo1', 'Nome', 'maxlength="60"') + campo('pTo2', 'E-mail', 'maxlength="80" type="email"') + campo('pTo3', 'Telefone', 'maxlength="30"') + campo('pTo4', 'Endereço', 'maxlength="120"') + '</div>' +
+      '<div class="field"><label for="pNota">Observações (opcional)</label><textarea class="input" id="pNota" rows="2" maxlength="300" style="resize:vertical"></textarea></div>' +
+      '<div class="opt" style="padding:0"><div><b>Incluir contas fixas a pagar</b><div class="hint">As que ainda não foram pagas entram na data de vencimento.</div></div>' + switchHTML('pFixas', f.incluirFixas, 'Incluir contas fixas a pagar') + '</div>' +
+      '<div class="opt" style="padding:0"><div><b>Incluir receitas</b><div class="hint">Mostra também as receitas e o saldo do mês.</div></div>' + switchHTML('pRec', f.incluirReceitas, 'Incluir receitas') + '</div>' +
+      '<div class="alert info" id="pResumo"></div>' +
+      '<div class="btn-row"><button type="button" class="btn" id="pVer">Visualizar</button><button type="submit" class="btn btn-primary" style="flex:1;padding:14px">' + ico('download') + 'Baixar PDF</button></div></form>';
+
+    openDialog(sheet('Fatura do mês em PDF', body), {
+      mount(root) {
+        const ids = { byNome: 'pBy1', byEmail: 'pBy2', byTelefone: 'pBy3', byEndereco: 'pBy4', toNome: 'pTo1', toEmail: 'pTo2', toTelefone: 'pTo3', toEndereco: 'pTo4', nota: 'pNota' };
+        Object.entries(ids).forEach(([k, id]) => { $('#' + id, root).value = f[k] || ''; });
+        const ler = () => {
+          Object.entries(ids).forEach(([k, id]) => { f[k] = $('#' + id, root).value.trim(); });
+          f.incluirFixas = $('#pFixas', root).getAttribute('aria-checked') === 'true';
+          f.incluirReceitas = $('#pRec', root).getAttribute('aria-checked') === 'true';
+          S.setSettings({ fatura: { ...f } }); // lembra para a próxima vez
+        };
+        const resumo = () => {
+          const m = C.invoiceModel(S.txs(), D().contas_fixas, D().contas, D().categorias, ui.month, today(), { incluirFixas: f.incluirFixas, incluirReceitas: f.incluirReceitas });
+          $('#pResumo', root).innerHTML = ico('info') + '<span>' + m.linhas.length + ' lançamento' + (m.linhas.length === 1 ? '' : 's') + ' · total do mês <b class="money">' + R(m.totais.total) + '</b>' + (m.totais.fixasAPagar ? ' (inclui ' + R(m.totais.fixasAPagar) + ' em contas fixas a pagar)' : '') + '</span>';
+        };
+        ['pFixas', 'pRec'].forEach((id) => { const sw = $('#' + id, root); sw.addEventListener('click', () => { sw.setAttribute('aria-checked', String(sw.getAttribute('aria-checked') !== 'true')); ler(); resumo(); }); });
+        $('#pdfForm', root).addEventListener('input', () => ler());
+        resumo();
+        const gerar = (modo) => {
+          ler();
+          try { const r = faturaDados(f); entregarPDF(r.bytes, r.nome, modo); if (modo === 'baixar') toast('Fatura gerada: ' + r.nome); } catch (e) { fail(e); }
+        };
+        $('#pVer', root).addEventListener('click', () => gerar('ver'));
+        $('#pdfForm', root).addEventListener('submit', (e) => { e.preventDefault(); gerar('baixar'); });
+      },
+    });
+  }
+
   /* ================================================================== AÇÕES ======== */
   function download(name, text, mime, bom) {
     const blob = new Blob([bom ? '﻿' + text : text], { type: mime });
@@ -1113,6 +1191,7 @@
   }
 
   const ACTIONS = {
+    'export-pdf': () => openFaturaForm(),
     'month-prev': () => changeMonth(-1),
     'month-next': () => changeMonth(1),
     theme: () => { const cur = document.documentElement.dataset.theme; setTheme(cur === 'dark' ? 'light' : 'dark'); },
